@@ -32,3 +32,16 @@ Thumbs.db
 build/
 dist/
 *.egg-info/
+
+# Project artifacts
+data/raw/
+data/lake/
+models/
+reports/*
+!reports/.gitkeep
+wandb/
+.pytest_cache/
+.ruff_cache/
+
+# Local reference checkout (Jane Street architecture), not part of this project
+kagglejanestreet-master/
