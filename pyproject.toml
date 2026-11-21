@@ -24,7 +24,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "ruff"]
+dev = ["pytest", "ruff", "matplotlib"]
 dashboard = ["fastapi", "uvicorn[standard]", "duckdb", "jinja2", "python-multipart"]
 
 [tool.setuptools]

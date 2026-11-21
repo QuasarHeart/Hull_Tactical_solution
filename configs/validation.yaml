@@ -1,0 +1,22 @@
+_base_: gdbt/cv.yaml
+run_name: gbdt_validation
+validation:
+  block_lengths: [5, 10, 20, 40, 60]
+  primary_block_length: 20
+  temporal_reps: 1000
+  bootstrap_reps: 2000
+  bootstrap_sensitivity_reps: 1000
+  exposure_paths: 500
+  quantiles: 5
+  cost_grid: [0.0, 0.00003, 0.0001, 0.0003, 0.001]
+  turnover_cost_bps: [0, 1, 5, 10, 25]
+  regime_window: 20
+  n_regimes: 3
+  seed: 42
+  primary_comparisons:
+    - buy_hold
+    - constant_1.25
+    - vol_only_1.0
+  exposure_comparisons:
+    - lag1
+    - expanding_mean
