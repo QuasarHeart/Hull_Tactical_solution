@@ -1,0 +1,16 @@
+[Unit]
+Description=Run Hull Tactical daily job at 08:30 Asia/Shanghai
+
+[Timer]
+# 08:30 CST after the US close and the daily dataset update.
+# If your systemd does not accept the timezone suffix, use:
+#   OnCalendar=*-*-* 00:30:00 UTC
+OnCalendar=*-*-* 08:30:00 Asia/Shanghai
+# Second run catches a late source update; the job is idempotent and skips
+# the download when the date is unchanged.
+OnCalendar=*-*-* 12:30:00 Asia/Shanghai
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

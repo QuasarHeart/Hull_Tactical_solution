@@ -1,0 +1,16 @@
+[Unit]
+Description=Hull Tactical daily ingest and prediction
+Documentation=file:/opt/hull/app/README.md
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=hull
+Group=hull
+WorkingDirectory=/opt/hull/app
+EnvironmentFile=/opt/hull/app/.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/hull/venv/bin/python scripts/daily_job.py
+TimeoutStartSec=1800
+Nice=10
