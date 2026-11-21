@@ -1,0 +1,9 @@
+_base_: phase4.yaml
+run_name: gdbt_phase5_window_attribution
+phase5:
+  shuffle_reps: 2000
+  block_shuffle_reps: 1000
+  block_length: 20
+  n_signal_bins: 5
+  regime_quantiles: [0.33, 0.67]
+  cost_bps: 10.0
