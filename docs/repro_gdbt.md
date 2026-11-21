@@ -2,7 +2,7 @@
 
 日期：2026-11-21  
 环境：`/home/yys/miniconda3/envs/dlwpt/bin/python`（Python 3.12，xgboost 3.3.0，lightgbm 4.6.0，polars 1.44.2，wandb 0.31.2）  
-状态：本地复现完成，W&B 已接入；GBDT notebook、CV offline/online 均已跑完，每日数据链路已打通（2026-11-21）。
+状态：本地复现完成，W&B 已接入；GBDT notebook、CV offline/online 均已跑完，每日数据链路已打通（2026-11-21）。Phase 3 deployment-faithful daily retrain 与 E14 检查、Phase 4 feature-builder attribution 也已完成，见 `docs/deployment_eval.md` 和 `docs/feature_builder_attribution.md`。
 
 ## 1. 实现内容
 
@@ -30,10 +30,15 @@ gdbt/
 scripts/
   run_replay.py   本地回放（in-sample，复现 notebook）
   run_cv.py       6 折 walk-forward（out-of-sample）
+  run_daily_retrain.py  逐日重训的 deployment-faithful 6 折 OOF
+  compare_deployment_modes.py  Daily/Offline/Online/B&H/Constant/Vol-only 统一比较
+  run_e14_stress.py  post-competition E14 特征处理压力测试
+  run_phase4_dynamic_fixed.py  Phase 4C: dynamic builder + fixed model OOF
+  run_feature_builder_attribution.py  Phase 4 2×2 归因、诊断和 bootstrap
   notebook_reference.py  直接 exec 提交 notebook 作为参照
   ingest_daily.py / predict_latest.py / daily_job.py  每日链路
 deploy/           systemd service + timer + 安装说明
-tests/            18 个测试：指标、数据、特征、泄漏、管线、notebook 对齐、每日 ingest
+tests/            40 个测试：指标、数据、特征、泄漏、管线、notebook 对齐、每日 ingest、验证与评估
 ```
 
 ## 2. Notebook 复现（in-sample）
@@ -196,8 +201,10 @@ deploy/                systemd service + timer + 安装说明
 
 数据质量告警（必须关注）：`E14` 从 2026-06-16 起连续缺失（111 行，含最新行）。
 notebook 的 0.5 缺失阈值会保留它（800 行窗口缺失率 13.9%），模型用中位数填充。
-`health.json` / stdout 会给出警告；如果 E14 长期不恢复，应考虑在特征筛选里显式丢弃
-或在 DL 版本中把它作为 missing indicator，而不是继续中位数填充。
+`health.json` / stdout 会给出警告。Phase 3 的 post-competition 压力测试显示：删除 E14
+更差，`E14_MISSING` 的 XGBoost importance 为 0 且不改变仓位路径，因此当前继续 median fill，
+暂不加入 missing indicator；等更长已实现窗口或 live A/B 再决定。详见
+`docs/deployment_eval.md`。
 
 部署：见 `deploy/README.md`。VPS 上安装后先跑
 
@@ -210,4 +217,34 @@ python scripts/daily_job.py
 再启用 `hull-daily.timer`（每天 08:30 Asia/Shanghai，`Persistent=true`）。失败会
 非零退出并保留上一版 panel/prediction；每次成功写 `ingest_log.jsonl` 和 `health.json`。
 测试覆盖：`tests/test_ingest.py`（schema、target 尾部、特征不匹配、幂等 upsert、拒绝缩表、
-state/health），全套 `pytest -q` 18 passed。
+state/health），全套 `pytest -q` **40 passed**。
+
+## 7. Deployment-faithful 评估（Phase 3）
+
+```bash
+python scripts/run_daily_retrain.py
+python scripts/compare_deployment_modes.py
+python scripts/run_e14_stress.py --retrain-every 20 --output reports/deployment_eval/e14_rolling20
+```
+
+Daily retrain 严格使用 `date_id < t` 的最近 800 行，逐日重建 feature builder 并重训
+enet/xgb/lgb；六折 OOF 的 `train_end < date_id` 全部成立。结果：官方分数均值 0.871，
+低于 Online 1.253、Buy & Hold 1.498、Constant 1.25 1.411、Vol-only 1.267；continuous
+score 0.808 也低于 Online 和简单基准。更严格的部署口径没有复现 Online 的优势。
+
+E14 outage 与六折测试期重叠为 0；post-competition 代理窗口见
+`docs/deployment_eval.md`。结论：暂不进入 Deep Learning，先分解 daily vs Online 的
+feature-median / 路径差异。
+
+## 8. Phase 4 特征/重训归因
+
+```bash
+python scripts/run_phase4_dynamic_fixed.py
+python scripts/run_feature_builder_attribution.py
+```
+
+2×2 factorial：A fixed builder+fixed model（Offline）、B fixed+rolling（Online）、
+C dynamic+fixed（new）、D dynamic+rolling（Daily Retrain）。所有 OOF 复制到
+`reports/phase4_attribution/oof/` 并记录 SHA-256；未用 OOF 调参。结果：A 0.833、
+B 1.253、C 0.524、D 0.871；所有 paired block-bootstrap 对比的 CI 都跨 0。
+详见 `docs/feature_builder_attribution.md`。

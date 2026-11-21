@@ -3,16 +3,28 @@
 Shared data/metric/allocation layer plus two model families:
 
 ```
-common/   data, schema, features, transforms, splits, metrics, allocation,
-          backtest, pipeline orchestration, tracker, registry
-gdbt/     tabular model family (ElasticNet + XGBoost + LightGBM)
-dl/       sequence model family (added after the GBDT baseline is validated)
-scripts/  thin entry points (replay, CV, later daily ingest/dashboard)
-tests/    metric parity, notebook parity, leakage and smoke tests
+common/       shared config/data/schema/features/transforms/splits/metrics/
+              allocation/backtest/pipeline/ingest/registry/validation/evaluation
+gdbt/         tabular model family (ElasticNet + XGBoost + LightGBM)
+dl/           sequence model family (interface reserved; not implemented)
+configs/      base config + gdbt CV/phase configs + validation config
+scripts/      thin entry points for replay, CV, live ingest, research phases
+deploy/       systemd service/timer and server installation notes
+docs/         reproduction/validation/deployment/live-window reports
+docs/reference/  official competition scoring notebook
+tests/        metric parity, notebook parity, leakage, ingest and research tests
 ```
 
-The current milestone reproduces the submitted notebook's GBDT solution and
-logs the run to Weights & Biases.
+The repository has completed the GBDT research sequence:
+
+- notebook replay and six-fold walk-forward CV;
+- baseline/ablation and temporal-validation studies;
+- deployment-faithful daily-retrain and E14 stress checks;
+- Phase 4 fixed/dynamic feature-builder and retraining attribution;
+- Phase 5 official 137-day competition-window attribution.
+
+Deep Learning is intentionally not implemented yet; a GBDT incremental-value
+gate precedes it.
 
 ## Setup
 
@@ -110,6 +122,72 @@ python scripts/run_cv.py --no-wandb
 Six folds (2015, 2017, 2019, 2021, 2023, 2025), each with a rolling 800-day
 training window, a 1-day purge gap and a calendar-year test block. Reports
 per-fold score, Sharpe, IC, direction accuracy and mean allocation.
+
+## Baseline and ablation experiments
+
+```bash
+python scripts/run_experiments.py --shuffles 1000
+```
+
+This runs Buy & Hold, constant allocations, volatility-only, constant-forecast
+ablation and a within-fold prediction shuffle on the saved CV OOF. Results,
+methodology and charts are in `docs/experiments.md`; raw records are under
+`reports/experiments/` (ignored by git). Headline: Buy & Hold mean score 1.4975,
+online model 1.2530, offline model 0.8332, volatility-only 1.0x 1.2665.
+
+## GBDT validation before deep learning
+
+```bash
+python scripts/run_validation.py
+```
+
+This runs the temporal nulls, paired block bootstrap, causal exposure-matched
+baselines, prediction-quality analysis and allocation attribution on the saved
+OOF. The decision report is `docs/gbdt_validation.md`; the decision log is
+`docs/research_decisions.md`. Headline: no reliable incremental value was
+detected over Buy & Hold / Constant 1.25 / Vol-only, so DL is not started yet.
+The deployment-faithful daily-retrain check in `docs/deployment_eval.md` reaches
+the same verdict: mean official score 0.871 versus Online 1.253 and below the
+simple baselines.
+
+## Deployment-faithful daily retrain
+
+```bash
+python scripts/run_daily_retrain.py
+python scripts/compare_deployment_modes.py
+python scripts/run_e14_stress.py
+```
+
+The daily-retrain run retrains the three GBDT models on the last 800 realized
+rows before every test day, then compares Daily Retrain, Offline, Online,
+Buy & Hold, Constant 1.25 and Vol-only with the same scoring and allocation
+rules. Results are under `reports/deployment_eval/`; the E14 stress test is
+post-competition and proxy-scored because the live source has no `fwd/rf`.
+
+## Feature-builder and retraining attribution
+
+```bash
+python scripts/run_phase4_dynamic_fixed.py
+python scripts/run_feature_builder_attribution.py
+```
+
+This runs the 2×2 factorial (fixed/dynamic feature builder × fixed/rolling
+model), reuses the immutable Offline/Online/Daily OOFs, creates the missing
+dynamic-builder/fixed-model OOF, and reports feature, prediction, allocation,
+turnover and paired block-bootstrap diagnostics. See
+`docs/feature_builder_attribution.md`. Headline: no configuration has robust
+incremental value; dynamic builder reconstruction is the leading descriptive
+cause of the Online→Daily gap, but the six-fold intervals remain wide.
+
+## Competition-window attribution
+
+```bash
+python scripts/run_phase5_window_attribution.py
+```
+
+This runs the signal-direction, prediction-shuffle, multiplier, smoothing,
+prediction-bin, monthly and volatility-regime ablations on the 137-day official
+live window. See `docs/phase5_competition_window_attribution.md`.
 
 ## Weights & Biases
 
