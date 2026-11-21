@@ -1,0 +1,42 @@
+_base_: ../base.yaml
+run_name: gdbt_notebook_cv
+wandb:
+  tags: ["gdbt", "notebook-parity", "cv"]
+model:
+  max_train_rows: 800
+  min_date_id: 37
+  missing_threshold: 0.5
+  online_update: false
+  retrain_freq: 1
+
+  enet_alpha: 0.01
+  enet_l1_ratio: 0.5
+  xgb_n_estimators: 350
+  xgb_max_depth: 10
+  xgb_learning_rate: 0.05
+  lgb_n_estimators: 200
+  lgb_max_depth: 10
+  lgb_learning_rate: 0.05
+  ensemble_weights:
+    enet: 0.45
+    xgb: 0.55
+    lgb: 0.45
+  normalize_weights: false
+
+  vol_window: 20
+  signal_multiplier_low_vol: 600.0
+  signal_multiplier_high_vol: 400.0
+  min_signal: 0.0
+  max_signal: 2.0
+  vol_scaling: 1.2
+  smoothing: 0.25
+  transaction_cost: 0.00003
+
+cv:
+  # Rolling 800-row train window, test calendar years. The first test day of each
+  # fold starts after the train window plus `gap` days.
+  test_years: [2015, 2017, 2019, 2021, 2023, 2025]
+  train_window: 800
+  gap: 1
+  # 2025 test ends at the last competition train date (2025-12-03).
+  last_date_id: 9047

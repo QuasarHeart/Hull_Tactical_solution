@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hull-tactical"
+version = "0.1.0"
+description = "Hull Tactical research pipeline: shared data/metric/allocation layer + GBDT/DL model families"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy",
+    "pandas",
+    "polars",
+    "scikit-learn",
+    "xgboost",
+    "lightgbm",
+    "joblib",
+    "pyyaml",
+    "python-dotenv",
+    "wandb",
+    "pyarrow",
+    "tqdm",
+    "requests",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff"]
+dashboard = ["fastapi", "uvicorn[standard]", "duckdb", "jinja2", "python-multipart"]
+
+[tool.setuptools]
+packages = ["common", "gdbt", "dl"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"

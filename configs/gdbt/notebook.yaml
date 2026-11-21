@@ -1,0 +1,40 @@
+_base_: ../base.yaml
+run_name: gdbt_notebook_replay
+wandb:
+  tags: ["gdbt", "notebook-parity", "replay"]
+model:
+  # Notebook reproduction
+  max_train_rows: 800
+  min_date_id: 37
+  missing_threshold: 0.5
+  online_update: false          # notebook's online branch is unreachable; keep false for parity
+  retrain_freq: 1
+
+  # Estimators
+  enet_alpha: 0.01
+  enet_l1_ratio: 0.5
+  xgb_n_estimators: 350
+  xgb_max_depth: 10
+  xgb_learning_rate: 0.05
+  lgb_n_estimators: 200
+  lgb_max_depth: 10
+  lgb_learning_rate: 0.05
+  ensemble_weights:
+    enet: 0.45
+    xgb: 0.55
+    lgb: 0.45
+  normalize_weights: false       # notebook uses 1.45 total weight; keep for parity
+
+  # Allocation
+  vol_window: 20
+  signal_multiplier_low_vol: 600.0
+  signal_multiplier_high_vol: 400.0
+  min_signal: 0.0
+  max_signal: 2.0
+  vol_scaling: 1.2
+  smoothing: 0.25
+  transaction_cost: 0.00003
+replay:
+  # If null, read date_ids from data/test.csv. Set explicitly for reproducibility.
+  test_date_ids: null
+  scored_only: true
