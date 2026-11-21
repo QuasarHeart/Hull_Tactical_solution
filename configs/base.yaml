@@ -1,0 +1,28 @@
+seed: 42
+paths:
+  data_dir: data
+  models_dir: models
+  reports_dir: reports
+  train_csv: data/train.csv
+  test_csv: data/test.csv
+  date_map_csv: data/date_map.csv
+  raw_dir: data/raw/hull
+  panel_path: data/lake/panel_live.parquet
+  predictions_path: data/lake/predictions.parquet
+  state_path: data/lake/ingest_state.json
+  log_path: data/lake/ingest_log.jsonl
+  health_path: data/lake/health.json
+data_source:
+  base_url: https://www.hulltactical.com/kaggle-dataset-download/
+  timeout_seconds: 60
+  retries: 3
+  max_lookback_days: 5
+  require_competition_alignment: true
+wandb:
+  enabled: true
+  project: hull_tactical
+  entity: null
+  mode: null          # null -> online; "offline" / "disabled" also accepted
+  base_url: https://api.forge.coreweave.com
+  tags: []
+  log_artifacts: true
