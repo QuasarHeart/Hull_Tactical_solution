@@ -1,0 +1,8 @@
+_base_: cv.yaml
+run_name: gdbt_phase4_attribution
+phase4:
+  block_length: 20
+  bootstrap_reps: 2000
+  cost_bps: 10.0
+  seed: 42
+  primary_baselines: [buy_hold, constant_1.25, vol_only, existing_online, existing_daily]
