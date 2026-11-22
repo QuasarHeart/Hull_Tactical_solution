@@ -19,7 +19,7 @@
 | Phase 4 | feature builder 漂移还是模型重训造成差距？ | `scripts/run_phase4_dynamic_fixed.py`, `scripts/run_feature_builder_attribution.py` | `docs/feature_builder_attribution.md` | 2×2 点估计指向 dynamic builder 负向、rolling 正向；所有 paired CI 跨 0 |
 | Phase 5 | 官方 137 天窗口的收益来自哪里？ | `scripts/run_phase5_window_attribution.py`, `scripts/score_live_window.py` | `docs/phase5_competition_window_attribution.md`, `docs/live_window_20251216_20260706.md` | 官方公式复算 2.192；反转信号 0.055；multiplier=1 为 0.556；shuffle p≈0.052 |
 | Phase 6 | 信号是否跨 regime、是否集中、能否在 locked window 复现？ | `scripts/run_phase6_signal_robustness.py`, `scripts/score_live_window.py` | `docs/phase6_signal_robustness.md`, `docs/phase6_preregistration.md` | 官方 2.192 但 HAC raw p=0.014、Holm p=0.085；locked 95 天 Daily 1.382、Offline 2.711，均不显著 |
-| Phase 8 | 如何把证据、限制和复现材料整合成可审计报告？ | `scripts/make_phase8_assets.py`, `scripts/build_data_manifest.py` | `docs/final_research_report.md`, `data/manifest.json` | 冻结 GBDT，保留 evidence map；不把 holdout 结果用于选参 |
+| Phase 7 | 如何把证据、限制和复现材料整合成可审计报告？ | `scripts/make_phase7_assets.py`, `scripts/build_data_manifest.py` | `docs/final_research_report.md`, `data/manifest.json` | 冻结 GBDT，保留 evidence map；不把 holdout 结果用于选参 |
 
 产物默认写入 `reports/<phase>/`，该目录被 `.gitignore` 忽略；需要长期保存的
 结论、脚本、配置和 manifest 在 `docs/`、`scripts/`、`configs/` 与 `data/manifest.json`。

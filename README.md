@@ -240,10 +240,10 @@ correction; the independent 95-day window is positive for Daily Retrain and
 Offline but is not statistically significant. Do not select a multiplier or
 model from these post-window results.
 
-## Phase 8 report and audit
+## Phase 7 report and audit
 
 ```bash
-python scripts/make_phase8_assets.py
+python scripts/make_phase7_assets.py
 python scripts/build_data_manifest.py
 pytest -q
 ```

@@ -23,7 +23,7 @@
 | D13 | Phase 4 decision gate：停止 further GBDT optimization | active |
 | D14 | Phase 5：官方窗口分数可复现，但 signal 证据弱 | active |
 | D15 | Phase 6：HAC/Holm 后无稳健 alpha，holdout 不选参 | active |
-| D16 | Phase 8：冻结 GBDT、发布报告与审计材料 | active |
+| D16 | Phase 7：冻结 GBDT、发布报告与审计材料 | active |
 
 ## Decision log
 
@@ -193,9 +193,9 @@ robust alpha；不根据这个窗口选择 200 multiplier 或 Offline。GBDT 冻
 下一步若进入 DL，复用同一评估接口和预注册流程。详见
 `docs/phase6_signal_robustness.md`。
 
-### D16. Phase 8 final synthesis and release audit
+### D16. Phase 7 final synthesis and release audit
 
-Phase 8 不再新增模型或调参，只把已有证据整理为可审计的最终报告：
+Phase 7 不再新增模型或调参，只把已有证据整理为可审计的最终报告：
 `docs/final_research_report.md`；实验索引进入 `docs/experiments.md`；决策历史
 在本文件；README 增加架构图、核心结果图和限制；`data/manifest.json` 记录数据
 哈希、行数、日期范围和 live/raw 的 gitignored 状态；测试覆盖扩展到 42 项。
@@ -210,12 +210,12 @@ Limitations 必须明确列出：单一窗口收益集中、signal 统计证据�
 
 ```bash
 python scripts/run_phase6_signal_robustness.py
-python scripts/make_phase8_assets.py
+python scripts/make_phase7_assets.py
 python scripts/build_data_manifest.py
 pytest -q
 ```
 
-Phase 8 的 Git commit 按“Phase 6 研究 + Phase 8 文档/资产/审计”拆分；push 仍由
+Phase 7 的 Git commit 按“Phase 6 研究 + Phase 7 文档/资产/审计”拆分；push 仍由
 用户决定，不自动执行。
 
 ## Anti-leakage guardrails

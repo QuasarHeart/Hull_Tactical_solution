@@ -385,11 +385,11 @@ bootstrap。
 - `docs/assets/architecture.html`：可交互阅读的架构图源文件；
 - `docs/assets/architecture.png`：README / report 使用的静态图；
 - `docs/assets/core_results.png` 与 `.svg`：四面板核心结果图；
-- `scripts/make_phase8_assets.py`：从 reports 重建核心图。
+- `scripts/make_phase7_assets.py`：从 reports 重建核心图。
 
 ### 7.4 Git and release
 
-Phase 6 与 Phase 8 的代码、配置、报告、图表和审计文件按功能拆分提交；
+Phase 6 与 Phase 7 的代码、配置、报告、图表和审计文件按功能拆分提交；
 `reports/`、`models/`、`wandb/`、`data/raw/`、`data/lake/` 不进入 Git。
 最终提交记录用以下命令查看：
 
@@ -426,6 +426,6 @@ push 由用户决定，不自动执行。
 > signal、allocation、multiplier、smoothing、regime 和少数交易日的贡献，
 > 能够在独立窗口上提前冻结假设，并诚实地报告“证据不足”。
 
-在这个标准下，Phase 6/8 的结论是 **inconclusive but auditable**：保留模型作为
+在这个标准下，Phase 6/7 的结论是 **inconclusive but auditable**：保留模型作为
 基线，停止用同一窗口寻找更好看的数字；如果未来进入 DL，必须先解决样本、
 成本和统计功效问题，而不是换一个更复杂的模型。

@@ -1,4 +1,4 @@
-"""Build the Phase 8 presentation assets from the saved research reports."""
+"""Build the Phase 7 presentation assets from the saved research reports."""
 
 from __future__ import annotations
 
