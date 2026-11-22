@@ -1,68 +1,48 @@
-# Phase 5: competition-window performance attribution
+# 第 5 阶段：137 日研究扩展窗口的业绩归因
 
-Date: 2026-11-21  
-Window: 2025-12-16 through 2026-07-06 (137 trading days)  
-Primary path: Daily Retrain (dynamic builder + full daily refit)  
-Official score: `docs/reference/hull-competition-sharpe.ipynb` formula with
-`fwd = target_metric`, `rf = 0`; the notebook was executed and reproduced the
-original **2.1921191431873206**.
+> 口径说明：赛后确认竞赛官方评估期为 **2025-12-16 至 2026-06-25（131 个交易日）**。本文分析的是到 2026-07-06 的 **137 日研究扩展窗口**，不是官方私有评估期；正文保留原始研究窗口和结果，不把 137 日称为官方窗口。
 
-No model was retrained for these ablations. Every experiment starts from the
-saved signal, volatility, multiplier and allocation path. The saved allocation
-is reproduced exactly by `simulate_positions` (max abs diff 0.0).
+日期：2026-11-21
+窗口（window）：2025-12-16 至 2026-07-06（137 个交易日）
+主路径：每日重训（Daily Retrain，动态构建器 dynamic builder + 每日完整重拟合 full daily refit）
+官方评分（official score）：采用 `docs/reference/hull-competition-sharpe.ipynb` 中的公式，`fwd = target_metric`、`rf = 0`；该 notebook 已执行，并复现出原始值 **2.1921191431873206**。
 
-## 1. Ablations
+这些消融实验（ablation）未重新训练任何模型。每个实验都从已保存的信号（signal）、波动率（volatility）、乘数（multiplier）和仓位配置路径（allocation path）出发。已保存的仓位配置由 `simulate_positions` 精确复现（最大绝对误差 0.0）。
 
-| Variant | Official score | Raw Sharpe | Cumulative return | Max drawdown | Turnover | Mean allocation |
+## 1. 消融实验（Ablation）
+
+| 变体 | 官方评分 | 原始夏普比率（Raw Sharpe） | 累计收益 | 最大回撤 | 换手率 | 平均仓位 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Original signal + allocation | **2.1921** | **2.1921** | **12.21%** | -4.01% | 0.530 | 0.711 |
-| Reverse raw signal | 0.0549 | 0.1552 | 1.28% | -11.15% | 0.463 | 0.627 |
-| No multiplier (`multiplier=1`) | 0.5565 | 1.8461 | 0.34% | -0.15% | 0.016 | 0.015 |
-| Fixed multiplier 600 | 2.1775 | 2.1775 | 13.96% | -4.83% | 0.571 | 0.829 |
-| Fixed multiplier 400 | 2.1812 | 2.1812 | 12.13% | -4.01% | 0.529 | 0.706 |
-| No smoothing (`smoothing=0`) | 2.0141 | 2.0141 | 12.81% | -4.91% | 0.733 | 0.712 |
+| 原始信号 + 仓位配置 | **2.1921** | **2.1921** | **12.21%** | -4.01% | 0.530 | 0.711 |
+| 反转原始信号 | 0.0549 | 0.1552 | 1.28% | -11.15% | 0.463 | 0.627 |
+| 无乘数（`multiplier=1`） | 0.5565 | 1.8461 | 0.34% | -0.15% | 0.016 | 0.015 |
+| 固定乘数 600 | 2.1775 | 2.1775 | 13.96% | -4.83% | 0.571 | 0.829 |
+| 固定乘数 400 | 2.1812 | 2.1812 | 12.13% | -4.01% | 0.529 | 0.706 |
+| 无平滑（`smoothing=0`） | 2.0141 | 2.0141 | 12.81% | -4.91% | 0.733 | 0.712 |
 
-Reading:
+解读：
 
-- **Direction matters.** Reversing the raw prediction leaves long-only
-  positions on the opposite days and collapses the official score from 2.192
-  to 0.055. It is not a symmetric short strategy because the position floor is
-  zero.
-- **The multiplier is essential for exposure.** Setting it to 1 produces a
-  near-zero-exposure path (mean allocation 0.015), only 0.34% cumulative
-  return, and official score 0.556. The high score is not produced by raw
-  predictions alone.
-- **The 600/400 switch is not the main driver.** Fixed 600 scores 2.178 and
-  fixed 400 scores 2.181, both close to the original 2.192. Fixed 600 earns
-  more (13.96%) but has a worse drawdown and volatility; fixed 400 is nearly
-  indistinguishable from the switch.
-- **Smoothing improves risk-adjusted performance.** Removing smoothing raises
-  turnover from 0.530 to 0.733, lowers the official score from 2.192 to 2.014,
-  and deepens the drawdown (-4.01% to -4.91%), even though it raises cumulative
-  return slightly (12.21% to 12.81%). The zero-position share rises to 45.3%
-  without smoothing.
+- **方向很重要。** 反转原始预测会使纯多头（long-only）仓位落在相反的交易日上，官方评分从 2.192 跌至 0.055。由于仓位下限为零，它并不是一个对称的做空策略。
+- **乘数对敞口至关重要。** 将其设为 1 会产生近乎零敞口的路径（平均仓位 0.015），累计收益仅 0.34%，官方评分 0.556。高评分并非仅由原始预测产生。
+- **600/400 切换不是主要驱动因素。** 固定 600 得分 2.178，固定 400 得分 2.181，均接近原始的 2.192。固定 600 收益更高（13.96%），但回撤和波动率更差；固定 400 与切换策略几乎无法区分。
+- **平滑改善了风险调整后表现。** 去除平滑使换手率从 0.530 升至 0.733，官方评分从 2.192 降至 2.014，回撤加深（-4.01% 至 -4.91%），尽管累计收益略有提高（12.21% 至 12.81%）。无平滑时零仓位占比升至 45.3%。
 
-## 2. Prediction shuffle
+## 2. 预测打乱检验（Prediction Shuffle）
 
-The signal is shuffled while each day's volatility and multiplier are kept,
-then the same allocation policy is reapplied. This tests whether the timing of
-the signal matters, not whether the allocation machinery works.
+在保留每日波动率和乘数的前提下打乱信号，然后重新施加相同的仓位配置策略。这检验的是信号的时点（timing）是否有影响，而不是仓位配置机制是否有效。
 
-| Null | Null mean | Null p05 | Null median | Null p95 | Actual | p (one-sided) |
+| 零假设 | 零分布均值 | 零分布 p05 | 零分布中位数 | 零分布 p95 | 实际值 | p 值（单侧） |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| IID shuffle, 2,000 reps | 0.750 | -0.099 | 0.521 | 2.200 | 2.192 | **0.0525** |
-| Block shuffle, L=20, 1,000 reps | 0.738 | -0.085 | 0.482 | 2.192 | 2.192 | **0.0519** |
+| IID 打乱，2,000 次重复 | 0.750 | -0.099 | 0.521 | 2.200 | 2.192 | **0.0525** |
+| 分块打乱，L=20，1,000 次重复 | 0.738 | -0.085 | 0.482 | 2.192 | 2.192 | **0.0519** |
 
-The actual score is at the edge of the null distribution but does **not** cross
-the conventional 5% threshold. The point estimate suggests the original signal
-timing adds value (actual 2.192 vs null median about 0.5–0.7), but this is not
-statistically conclusive with 137 days and the existing signal.
+实际评分位于零分布的边缘，但**未**越过常规的 5% 阈值。点估计表明原始信号的时点具有增量价值（实际 2.192，零分布中位数约 0.5–0.7），但在 137 天和现有信号条件下，这一结论在统计上并不确凿。
 
-## 3. Prediction bins
+## 3. 预测分箱（Prediction Bins）
 
-Five equal-count bins, low to high raw prediction:
+五个等数量分箱，原始预测从低到高：
 
-| Bin | n | Mean target_metric | Positive share | Mean allocation |
+| 分箱 | n | 平均 target_metric | 正收益占比 | 平均仓位 |
 | ---: | ---: | ---: | ---: | ---: |
 | 1 | 28 | -0.001607 | 0.429 | 0.139 |
 | 2 | 28 | 0.001605 | 0.571 | 0.149 |
@@ -70,14 +50,11 @@ Five equal-count bins, low to high raw prediction:
 | 4 | 27 | 0.002813 | 0.704 | 1.055 |
 | 5 | 27 | 0.000968 | 0.444 | 1.530 |
 
-Overall Pearson IC = 0.0848, rank IC = **0.1144**; top-minus-bottom bin
-spread = 0.002575. The relation is **not monotonic**: bin 4 is the best, bin 5
-falls back. High predictions do not reliably correspond to the highest future
-returns in this window.
+整体 Pearson IC = 0.0848，秩 IC（rank IC）= **0.1144**；最高分箱减最低分箱的价差（top-minus-bottom spread）= 0.002575。二者关系**并非单调**：分箱 4 最优，分箱 5 回落。在本窗口内，高预测值并不能可靠地对应最高的未来收益。
 
-## 4. Monthly decomposition
+## 4. 月度分解（Monthly Decomposition）
 
-| Month | Days | Official score | Raw Sharpe | Cumulative return | Max drawdown | Mean allocation |
+| 月份 | 天数 | 官方评分 | 原始夏普比率 | 累计收益 | 最大回撤 | 平均仓位 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | 2025-12 | 11* | 0.722 | 0.891 | 0.27% | -1.42% | 0.905 |
 | 2026-01 | 20 | 5.757 | 5.757 | 3.02% | -0.82% | 0.639 |
@@ -88,45 +65,30 @@ returns in this window.
 | 2026-06 | 21 | 1.230 | 1.230 | 1.17% | -1.91% | 0.503 |
 | 2026-07 | 3* | -0.452 | -6.648 | -0.22% | -0.26% | 0.369 |
 
-`*` Small sample; monthly scores are annualized from 3–11 days and are not
-stable estimates. April has a high raw Sharpe but a low official score because
-the return penalty is large; the reverse can happen in February.
+`*` 样本量小；月度评分由 3–11 天数据年化而来，并非稳定估计。4 月的原始夏普比率很高但官方评分很低，因为收益惩罚（return penalty）较大；2 月则可能相反。
 
-## 5. Volatility-regime decomposition
+## 5. 波动率状态分解（Volatility-Regime Decomposition）
 
-Regimes are classified causally using thresholds from the 800-day pre-window
-causal volatility distribution: low <= 0.0555, high >= 0.2643 (33rd/67th
-percentiles).
+状态（regime）依据 800 天窗口前（pre-window）因果波动率分布的阈值进行因果分类：低波动 <= 0.0555，高波动 >= 0.2643（第 33/67 百分位）。
 
-| Regime | Days | Official score | Raw Sharpe | Cumulative return | Max drawdown | Mean allocation |
+| 状态 | 天数 | 官方评分 | 原始夏普比率 | 累计收益 | 最大回撤 | 平均仓位 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Low vol | 21 | **4.788** | 4.788 | 2.70% | -1.42% | 0.806 |
-| Mid vol | 21 | 0.015 | 0.015 | 0.02% | -2.06% | 0.903 |
-| High vol | 95 | **2.440** | 2.440 | 9.23% | -2.73% | 0.647 |
+| 低波动 | 21 | **4.788** | 4.788 | 2.70% | -1.42% | 0.806 |
+| 中波动 | 21 | 0.015 | 0.015 | 0.02% | -2.06% | 0.903 |
+| 高波动 | 95 | **2.440** | 2.440 | 9.23% | -2.73% | 0.647 |
 
-The high-vol regime carries most of the absolute return (9.23% of 12.21%); the
-low-vol regime has the best risk-adjusted score. The mid-vol bucket is
-essentially flat. The 95-day high-vol bucket is large because the 2026 window
-was mostly above the pre-window high threshold.
+高波动状态承载了大部分绝对收益（12.21% 中的 9.23%）；低波动状态的风险调整后评分最佳。中波动区间基本持平。高波动区间多达 95 天，是因为 2026 年窗口大部分时间高于窗口前的高波动阈值。
 
-## 6. What this means
+## 6. 结论与含义
 
-1. The original 137-day score is reproduced exactly, so the reported phase-4/5
-   number is not an artifact of a different metric implementation.
-2. The model's direction matters, but the **multiplier and smoothing are doing
-   a large part of the work**. Without the multiplier, exposure collapses and
-   the score falls to 0.556. Without smoothing, the score falls to 2.014.
-3. The 600/400 multiplier switch itself is not essential: fixed 600/400 are
-   within about 0.015 of the original score.
-4. The signal-timing evidence is positive but weak: shuffle p ≈ 0.052, rank IC
-   ≈ 0.114, and prediction bins are non-monotonic.
-5. The live advantage is concentrated in January, April and the high-vol
-   bucket; February is negative and mid-vol is flat. Monthly/regime scores are
-   noisy because of short samples.
-6. These are still allocation-level diagnostics on one realized 137-day
-   window; they do not establish a stable forecasting edge.
+1. 137 天的原始评分被精确复现，因此所报告的第 4/5 阶段数值并非不同指标实现造成的假象。
+2. 模型方向有影响，但**乘数和平滑承担了很大一部分作用**。没有乘数时，敞口坍塌，评分降至 0.556；没有平滑时，评分降至 2.014。
+3. 600/400 乘数切换本身并非必需：固定 600/400 与原始评分相差约 0.015 以内。
+4. 信号时点证据为正但较弱：打乱 p ≈ 0.052，秩 IC ≈ 0.114，且预测分箱非单调。
+5. 实盘优势集中在 1 月、4 月和高波动区间；2 月为负，中波动持平。由于样本期短，月度与状态评分噪声较大。
+6. 这些仍只是单一已实现的 137 日研究扩展窗口上的仓位配置层面诊断；它们并不能确立一个稳定的预测优势（forecasting edge）。
 
-## 7. Artifacts
+## 7. 产出物（Artifacts）
 
 - `scripts/run_phase5_window_attribution.py`
 - `configs/gdbt/phase5.yaml`
@@ -140,7 +102,7 @@ was mostly above the pre-window high threshold.
 - `reports/phase5_window_attribution/manifest.json`
 - `reports/phase5_window_attribution/plots/01..06`
 
-Reproduce:
+复现：
 
 ```bash
 python scripts/run_phase5_window_attribution.py

@@ -1,90 +1,66 @@
-# Feature-builder and retraining attribution (Phase 4)
+# 第 4 阶段（Phase 4）：特征构建器与重训归因
 
-Date: 2026-11-21  
-Scope: explain the Phase 3 gap between the existing Online GBDT and the
-deployment-faithful Daily Retrain. No Deep Learning was implemented.
+日期：2026-11-21
 
-## 1. Question and design
+范围：解释 Phase 3 中现有 Online GBDT 与部署保持一致（deployment-faithful）的日度重训（Daily Retrain）之间的差距，即特征构建器（feature builder）与重训（retraining）的归因（attribution）。本阶段未实现深度学习（Deep Learning）。
 
-The hypothesis was that dynamic feature-builder reconstruction and daily model
-retraining introduce calibration or prediction-path drift. Phase 4 separates the
-two factors with a 2×2 experiment on the same six test folds.
+## 1. 问题与实验设计
 
-| | Fixed model | Rolling daily model |
+假设是：动态特征构建器重建（dynamic feature-builder reconstruction）与日度模型重训会引入校准（calibration）或预测路径（prediction path）漂移。Phase 4 在相同的六个测试折（test fold）上用 2×2 实验把这两个因素分离开来。
+
+| | 固定模型 | 滚动日度模型 |
 | --- | --- | --- |
-| **Fixed feature builder** | **A**: existing Offline OOF | **B**: existing Online OOF |
-| **Dynamic feature builder** | **C**: new Phase 4C OOF | **D**: existing Daily-Retrain OOF |
+| **固定特征构建器** | **A**：现有 Offline OOF | **B**：现有 Online OOF |
+| **动态特征构建器** | **C**：新的 Phase 4C OOF | **D**：现有 Daily-Retrain OOF |
 
-Operational definitions:
+操作定义：
 
-- **Fixed builder**: fit once per fold on the last 800 realized rows before the
-  first test day. Its feature list, medians, missing-rate filter and
-  `v1_median` stay frozen for that fold.
-- **Dynamic builder**: refit on every test day on the last 800 realized rows.
-  For C the fixed model keeps its original input schema; dynamic columns absent
-  from that schema would be filled from the fold-start medians, and extra
-  dynamic columns are ignored. In practice the fixed model had **zero missing
-  fixed-schema features**; dynamic extra columns were 0–1.
-- **Fixed model**: train ElasticNet + XGBoost + LightGBM once at fold start and
-  never update.
-- **Rolling model**:
-  - B uses the existing Online implementation: append the previous test day's
-    feature row and target, trim to the last 800 rows, refit all three models;
-  - D uses a full daily refit on the last 800 rows, together with its dynamic
-    builder.
-- **Allocation**: the same `NotebookAllocationPolicy` in every arm, reset to
-  zero at fold start, with the realized target fed back only after the
-  prediction. Hyperparameters, multiplier, volatility window, clipping,
-  smoothing and transaction cost are unchanged.
+- **固定构建器**：在每个折上，用第一个测试日之前最近 800 条已实现行拟合一次。其特征列表、中位数（median）、缺失率过滤（missing-rate filter）与 `v1_median` 在该折内保持冻结。
+- **动态构建器**：在每个测试日，用最近 800 条已实现行重新拟合。对于 C，固定模型保留其原始输入模式（input schema）；该模式中不存在的动态列会用折起点（fold-start）中位数填充，额外的动态列则被忽略。实际运行中固定模型**缺失的固定模式特征数为零**；额外的动态列为 0–1 个。
+- **固定模型**：在折起点训练一次 ElasticNet + XGBoost + LightGBM，之后不再更新。
+- **滚动模型**：
+  - B 使用现有 Online 实现：追加前一个测试日的特征行与目标，裁剪到最近 800 行，重新拟合全部三个模型；
+  - D 在最近 800 行上做完整的日度重拟合，并配合其动态构建器。
+- **分配（allocation）**：每个实验组使用同一 `NotebookAllocationPolicy`，在折起点重置为零，且只有在预测完成之后才把已实现目标（realized target）反馈回去。超参数（hyperparameters）、乘数（multiplier）、波动率窗口（volatility window）、截断（clipping）、平滑（smoothing）与交易成本（transaction cost）均未改变。
 
-The 2×2 design gives four direct contrasts:
+2×2 设计给出四组直接对比：
 
-- `C - A`: builder effect with a fixed model;
-- `D - B`: builder effect with a rolling model;
-- `B - A`: retraining effect with a fixed builder;
-- `D - C`: retraining effect with a dynamic builder;
-- interaction: `(D - C) - (B - A)`.
+- `C - A`：固定模型下的构建器效应；
+- `D - B`：滚动模型下的构建器效应；
+- `B - A`：固定构建器下的重训效应；
+- `D - C`：动态构建器下的重训效应；
+- 交互项（interaction）：`(D - C) - (B - A)`。
 
-## 2. Strict point-in-time protocol
+## 2. 严格的时点协议（point-in-time protocol）
 
-For every prediction day `t`:
+对每个预测日 `t`：
 
-1. Training rows must have `date_id < t` and a non-null realized target.
-2. Fixed builders use only the fold-start window; dynamic builders use the last
-   800 realized rows before `t`.
-3. The test row is transformed with those stored statistics; no future row is
-   read.
-4. The policy sees the target for `t` only after the allocation for `t` has
-   been written.
-5. The new C OOF was checked for `train_end < date_id` on every row; violations
-   = 0, `n_train = 800`, duplicate dates = 0.
+1. 训练行必须满足 `date_id < t`，且已实现目标非空。
+2. 固定构建器只使用折起点窗口；动态构建器使用 `t` 之前最近 800 条已实现行。
+3. 测试行用这些已存储的统计量进行变换；不读取任何未来行。
+4. 策略只有在 `t` 的分配写入之后，才能看到 `t` 的目标。
+5. 新的 C OOF 已逐行检查 `train_end < date_id`；违规数 = 0，`n_train = 800`，重复日期 = 0。
 
-No hyperparameter or allocation value was selected using these OOF results.
+没有任何超参数或分配取值是依据这些 OOF 结果选定的。
 
-## 3. Immutable OOFs
+## 3. 不可变（immutable）OOF
 
-The attribution run copies every input OOF into
-`reports/phase4_attribution/oof/` and records SHA-256 hashes in
-`manifest.json`. The existing A/B/D files are never written to.
+归因运行会把每个输入 OOF 复制到 `reports/phase4_attribution/oof/`，并把 SHA-256 哈希记录在 `manifest.json` 中。现有的 A/B/D 文件从不被写入。
 
-| Arm | Source | OOF |
+| 实验组 | 来源 | OOF |
 | --- | --- | --- |
-| A | `models/20261121_170606_gdbt_notebook_cv_offline_ae2a75` | existing Offline |
-| B | `models/20261121_170851_gdbt_notebook_cv_online_0746df` | existing Online |
-| C | `models/20261121_204048_gdbt_phase4_dynamic_fixed_a859e0` | new Phase 4C |
-| D | `models/20261121_193718_gdbt_daily_retrain_263fee` | existing Daily Retrain |
+| A | `models/20261121_170606_gdbt_notebook_cv_offline_ae2a75` | 现有 Offline |
+| B | `models/20261121_170851_gdbt_notebook_cv_online_0746df` | 现有 Online |
+| C | `models/20261121_204048_gdbt_phase4_dynamic_fixed_a859e0` | 新的 Phase 4C |
+| D | `models/20261121_193718_gdbt_daily_retrain_263fee` | 现有 Daily Retrain |
 
-## 4. Diagnostics
+## 4. 诊断（diagnostics）
 
-### 4.1 Feature builder and preprocessing
+### 4.1 特征构建器与预处理（preprocessing）
 
-Fixed builders contained 97/98/98/99/99/99 features in 2015–2025. Dynamic
-builders stayed in the same range (97–99), with **0 missing fixed-schema
-features** and at most one extra dynamic feature. The difference is therefore
-not a lost-feature artifact; it is median/imputation and feature-selection
-drift.
+固定构建器在 2015–2025 年分别包含 97/98/98/99/99/99 个特征。动态构建器保持在相同区间（97–99），**缺失的固定模式特征为 0**，额外动态特征最多一个。因此差异不是特征丢失造成的假象，而是中位数/插补（imputation）与特征选择（feature selection）漂移。
 
-| Fold | Fixed features | Dynamic features | Max dynamic extras | Max missing fixed | Mean median shift | Max median shift |
+| 折 | 固定特征数 | 动态特征数 | 动态额外特征上限 | 固定特征缺失上限 | 中位数平均偏移 | 中位数最大偏移 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | 2015 | 97 | 97–98 | 1 | 0 | 0.0872 | 1.544 |
 | 2017 | 98 | 98 | 0 | 0 | 0.1056 | 3.275 |
@@ -93,111 +69,91 @@ drift.
 | 2023 | 99 | 99 | 0 | 0 | 0.0954 | 3.012 |
 | 2025 | 99 | 99 | 0 | 0 | 0.0507 | 0.667 |
 
-`feature_medians_initial.csv` stores every fold-start median;
-`feature_stats.csv` stores the daily dynamic counts and median shifts.
+`feature_medians_initial.csv` 保存每个折起点的中位数；`feature_stats.csv` 保存每日的动态特征计数与中位数偏移。
 
-### 4.2 Raw predictions and calibration
+### 4.2 原始预测与校准
 
-Overall OOF prediction statistics (`prediction_stats.csv`, fold `all`):
+整体 OOF 预测统计（`prediction_stats.csv`，折 `all`）：
 
-| Arm | Mean | Std | Positive share | Pearson IC | Rank IC |
+| 实验组 | 均值 | 标准差 | 正值占比 | Pearson IC | Rank IC |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| A fixed/fixed | -0.001177 | 0.004125 | 0.349 | 0.0244 | 0.0543 |
-| B fixed/rolling | -0.000126 | 0.003073 | 0.500 | 0.0472 | 0.0243 |
-| C dynamic/fixed | -0.001602 | 0.004213 | 0.288 | 0.0156 | 0.0346 |
-| D dynamic/rolling | -0.000137 | 0.003128 | 0.510 | 0.0103 | -0.0004 |
+| A 固定/固定 | -0.001177 | 0.004125 | 0.349 | 0.0244 | 0.0543 |
+| B 固定/滚动 | -0.000126 | 0.003073 | 0.500 | 0.0472 | 0.0243 |
+| C 动态/固定 | -0.001602 | 0.004213 | 0.288 | 0.0156 | 0.0346 |
+| D 动态/滚动 | -0.000137 | 0.003128 | 0.510 | 0.0103 | -0.0004 |
 
-C has the most negative mean prediction and the lowest positive share (28.8%),
-which explains its low exposure. `prediction_bins.csv` contains five prediction
-quantiles per fold and overall.
+C 的均值预测最负，正值占比最低（28.8%），这解释了其较低的暴露（exposure）水平。`prediction_bins.csv` 包含每个折以及整体的五个预测分位（quantile）。
 
-### 4.3 Prediction and allocation correlations
+### 4.3 预测与分配的相关性
 
-Pearson correlation across concatenated OOF:
+拼接 OOF 上的 Pearson 相关性：
 
 | | A | B | C | D |
 | --- | ---: | ---: | ---: | ---: |
-| A raw / allocation | 1 / 1 | 0.086 / 0.188 | 0.865 / 0.727 | 0.068 / 0.179 |
-| B raw / allocation | 0.086 / 0.188 | 1 / 1 | 0.045 / 0.161 | 0.897 / 0.801 |
-| C raw / allocation | 0.865 / 0.727 | 0.045 / 0.161 | 1 / 1 | 0.040 / 0.163 |
-| D raw / allocation | 0.068 / 0.179 | 0.897 / 0.801 | 0.040 / 0.163 | 1 / 1 |
+| A 原始 / 分配 | 1 / 1 | 0.086 / 0.188 | 0.865 / 0.727 | 0.068 / 0.179 |
+| B 原始 / 分配 | 0.086 / 0.188 | 1 / 1 | 0.045 / 0.161 | 0.897 / 0.801 |
+| C 原始 / 分配 | 0.865 / 0.727 | 0.045 / 0.161 | 1 / 1 | 0.040 / 0.163 |
+| D 原始 / 分配 | 0.068 / 0.179 | 0.897 / 0.801 | 0.040 / 0.163 | 1 / 1 |
 
-The fixed model is stable under builder reconstruction (A–C raw 0.865), while
-the rolling model is stable across builder reconstruction (B–D raw 0.897). The
-two model regimes are almost orthogonal (A–B 0.086). Nevertheless, a small
-raw-prediction difference is amplified by clipping and smoothing into a much
-different allocation path: A–C allocation correlation is 0.727 and B–D is
-0.801.
+固定模型在构建器重建下是稳定的（A–C 原始相关性 0.865），滚动模型在构建器重建下同样稳定（B–D 原始相关性 0.897）。两种模型机制几乎正交（orthogonal）（A–B 0.086）。然而，微小的原始预测差异会被截断与平滑放大成差异大得多的分配路径：A–C 的分配相关性为 0.727，B–D 为 0.801。
 
-`prediction_correlations.csv` also reports Pearson and Spearman correlations
-against the existing Online and Daily outputs for every fold.
+`prediction_correlations.csv` 还会报告每个折相对现有 Online 与 Daily 输出的 Pearson 与 Spearman 相关性。
 
-### 4.4 Allocation, exposure and clipping
+### 4.4 分配、暴露与截断
 
-Overall (`allocation_stats.csv`):
+整体（`allocation_stats.csv`）：
 
-| Arm | Mean allocation | Zero share | Two share | Turnover |
+| 实验组 | 平均分配 | 零值占比 | 等于二倍的占比 | 换手（turnover） |
 | --- | ---: | ---: | ---: | ---: |
-| A fixed/fixed | 0.495 | 18.5% | 0% | 0.304 |
-| B fixed/rolling | 0.652 | 1.0% | 0% | 0.514 |
-| C dynamic/fixed | 0.402 | 25.0% | 0% | 0.221 |
-| D dynamic/rolling | 0.659 | 0.5% | 0% | 0.520 |
+| A 固定/固定 | 0.495 | 18.5% | 0% | 0.304 |
+| B 固定/滚动 | 0.652 | 1.0% | 0% | 0.514 |
+| C 动态/固定 | 0.402 | 25.0% | 0% | 0.221 |
+| D 动态/滚动 | 0.659 | 0.5% | 0% | 0.520 |
 
-C is the low-exposure arm: one quarter of its days are at zero, versus 1.0% for
-B. The dynamic builder with a fixed model is therefore not just a different
-prediction; it changes the frequency of the `signal <= 0` clipping event.
+C 是低暴露实验组：其四分之一的日子分配为零，而 B 仅为 1.0%。因此，动态构建器配合固定模型并不只是给出了不同的预测，它还改变了 `signal <= 0` 触发截断事件的频率。
 
-### 4.5 Runtime and computational cost
+### 4.5 运行时间与计算成本
 
-| Arm | Wall time | Model fits | Model updates | Builder refits |
+| 实验组 | 实际耗时（wall time） | 模型拟合次数 | 模型更新次数 | 构建器重拟合次数 |
 | --- | ---: | ---: | ---: | ---: |
-| A fixed/fixed | 145.9 s | 6 | 0 | 6 |
-| B fixed/rolling | 3,384.4 s | 6 | 1,482 | 6 |
-| C dynamic/fixed | 176.8 s | 6 | 0 | 1,488 |
-| D dynamic/rolling | 2,740.6 s | 1,488 | 0 | 1,488 |
+| A 固定/固定 | 145.9 s | 6 | 0 | 6 |
+| B 固定/滚动 | 3,384.4 s | 6 | 1,482 | 6 |
+| C 动态/固定 | 176.8 s | 6 | 0 | 1,488 |
+| D 动态/滚动 | 2,740.6 s | 1,488 | 0 | 1,488 |
 
-B and D are much more expensive than A/C because they refit the ensemble every
-day. A/B/D wall times are reconstructed from manifest creation to OOF write and
-include setup/logging; C is measured by the Phase 4C script. The detailed table
-is `runtime_costs.csv`. The extra cost does not buy a robust score improvement.
+B 与 D 的代价远高于 A/C，因为它们每天都要重新拟合整个集成。A/B/D 的实际耗时由 manifest 创建到 OOF 写出重建而来，并包含初始化/日志开销；C 由 Phase 4C 脚本实测。详细表为 `runtime_costs.csv`。额外成本并未换来稳健的分数提升。
 
-## 5. Performance and statistical comparison
+## 5. 表现与统计比较
 
-### 5.1 Six-fold metrics
+### 5.1 六折指标
 
-All rows use the same folds and labels. **Concatenated** means the six fold
-return series are joined in chronological fold order and compounded from the
-same starting capital. This is a synthetic OOF diagnostic, not a continuous
-calendar track record: the gaps between test folds are omitted and no capital
-is assumed invested in those gaps.
+所有行使用相同的折与标签。**拼接（concatenated）**指按折的时间顺序把六个折的收益序列连接起来，并从同一初始资金开始复利计算。这是合成的 OOF 诊断，而非连续的日历业绩记录：测试折之间的间隔被省略，也不假设在这些间隔中有资金处于投资状态。
 
-| Arm | Official score (fold mean) | Official score (concatenated) | Raw Sharpe (fold mean) | Raw Sharpe (concatenated) | Geometric cumulative return | Max drawdown | Turnover | Mean allocation |
+| 实验组 | 官方分数（折均） | 官方分数（拼接） | 原始夏普（Sharpe，折均） | 原始夏普（拼接） | 几何累计收益 | 最大回撤 | 换手 | 平均分配 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| A fixed/fixed | 0.833 | 0.419 | 0.992 | 0.629 | 109.5% | -31.8% | 0.304 | 0.495 |
-| B fixed/rolling | 1.253 | 1.271 | 1.435 | 1.277 | 191.7% | -20.1% | 0.514 | 0.652 |
-| C dynamic/fixed | 0.524 | 0.329 | 1.266 | 0.551 | 87.0% | -32.0% | 0.221 | 0.402 |
-| D dynamic/rolling | 0.871 | 0.808 | 1.114 | 0.966 | 134.1% | -19.3% | 0.520 | 0.659 |
+| A 固定/固定 | 0.833 | 0.419 | 0.992 | 0.629 | 109.5% | -31.8% | 0.304 | 0.495 |
+| B 固定/滚动 | 1.253 | 1.271 | 1.435 | 1.277 | 191.7% | -20.1% | 0.514 | 0.652 |
+| C 动态/固定 | 0.524 | 0.329 | 1.266 | 0.551 | 87.0% | -32.0% | 0.221 | 0.402 |
+| D 动态/滚动 | 0.871 | 0.808 | 1.114 | 0.966 | 134.1% | -19.3% | 0.520 | 0.659 |
 | Buy & Hold | 1.498 | 1.280 | 1.498 | 1.280 | 203.9% | -18.0% | 0.001 | 1.000 |
 | Constant 1.25 | 1.411 | 1.204 | 1.481 | 1.264 | 283.3% | -22.3% | 0.001 | 1.250 |
 | Vol-only 1.0x | 1.267 | 1.151 | 1.486 | 1.329 | 354.9% | -20.7% | 0.066 | 1.200 |
 
-Turnover-adjusted performance adds an explicit **10 bps linear cost per unit of
-|Δposition|** on top of the notebook policy. This is a stress diagnostic, not a
-replacement for the official score.
+换手调整（turnover-adjusted）后的表现，在 notebook 策略之上额外加入 **每单位 |Δposition| 的 10 bps 线性成本**。这是压力诊断，不替代官方分数。
 
-| Arm | Net Sharpe @10 bps | Net cumulative return @10 bps |
+| 实验组 | 净夏普 @10 bps | 净累计收益 @10 bps |
 | --- | ---: | ---: |
-| A fixed/fixed | -0.082 | -15.1% |
-| B fixed/rolling | -0.550 | -36.8% |
-| C dynamic/fixed | 0.044 | -3.1% |
-| D dynamic/rolling | -0.846 | -50.2% |
+| A 固定/固定 | -0.082 | -15.1% |
+| B 固定/滚动 | -0.550 | -36.8% |
+| C 动态/固定 | 0.044 | -3.1% |
+| D 动态/滚动 | -0.846 | -50.2% |
 | Buy & Hold | 1.495 | 203.2% |
 | Constant 1.25 | 1.465 | 282.3% |
 | Vol-only 1.0x | 1.344 | 274.2% |
 
-Fold-level official scores:
+折级官方分数：
 
-| Fold | A | B | C | D |
+| 折 | A | B | C | D |
 | --- | ---: | ---: | ---: | ---: |
 | 2015 | 0.226 | 0.460 | 0.312 | 0.348 |
 | 2017 | 0.316 | 0.521 | 0.583 | 0.572 |
@@ -206,109 +162,69 @@ Fold-level official scores:
 | 2023 | 0.166 | 2.851 | 0.816 | 1.653 |
 | 2025 | -0.049 | -0.107 | 0.003 | -0.099 |
 
-### 5.2 Factorial contrasts
+### 5.2 因子对比（factorial contrasts）
 
-Point estimates of the main effects (fold-mean official score):
+主效应（main effect）的点估计（折均官方分数）：
 
-- fixed builder mean = (0.833 + 1.253) / 2 = **1.043**;
-- dynamic builder mean = (0.524 + 0.871) / 2 = **0.697**;
-- fixed model mean = (0.833 + 0.524) / 2 = **0.678**;
-- rolling model mean = (1.253 + 0.871) / 2 = **1.062**.
+- 固定构建器均值 = (0.833 + 1.253) / 2 = **1.043**；
+- 动态构建器均值 = (0.524 + 0.871) / 2 = **0.697**；
+- 固定模型均值 = (0.833 + 0.524) / 2 = **0.678**；
+- 滚动模型均值 = (1.253 + 0.871) / 2 = **1.062**。
 
-Direct paired block-bootstrap contrasts (block = 20, 2,000 reps):
+直接配对分块 bootstrap 对比（block = 20，重复 2,000 次）：
 
-| Contrast | Estimate | 95% CI | p (unadjusted) | p (Holm) |
+| 对比 | 估计值 | 95% CI | p（未校正） | p（Holm） |
 | --- | ---: | ---: | ---: | ---: |
-| C − A: dynamic builder, fixed model | -0.310 | [-0.659, 0.398] | 0.721 | 1.000 |
-| D − B: dynamic builder, rolling model | -0.382 | [-0.643, 0.009] | 0.055 | 0.220 |
-| B − A: rolling model, fixed builder | +0.420 | [-0.276, 1.183] | 0.219 | 0.657 |
-| D − C: rolling model, dynamic builder | +0.347 | [-0.502, 1.011] | 0.518 | 1.000 |
-| Interaction `(D−C) − (B−A)` | **-0.072** | point estimate only | — | — |
+| C − A：动态构建器，固定模型 | -0.310 | [-0.659, 0.398] | 0.721 | 1.000 |
+| D − B：动态构建器，滚动模型 | -0.382 | [-0.643, 0.009] | 0.055 | 0.220 |
+| B − A：滚动模型，固定构建器 | +0.420 | [-0.276, 1.183] | 0.219 | 0.657 |
+| D − C：滚动模型，动态构建器 | +0.347 | [-0.502, 1.011] | 0.518 | 1.000 |
+| 交互项 `(D−C) − (B−A)` | **-0.072** | 仅点估计 | — | — |
 
-The point estimates point to **dynamic builder reconstruction as the negative
-driver** and **rolling retraining as a positive driver**, but none of the
-individual contrasts is statistically distinguishable from zero after Holm
-correction. The D−B contrast is the closest (unadjusted p = 0.055, upper CI
-0.009), but its Holm p is 0.220. The experiment therefore supports the
-hypothesis only as a **descriptive mechanism**, not as an established causal
-finding.
+点估计指向**动态构建器重建是负向驱动因素**、**滚动重训是正向驱动因素**，但在 Holm 校正之后，没有任何单个对比能在统计上与零区分。D−B 对比最接近（未校正 p = 0.055，CI 上界 0.009），但其 Holm p 为 0.220。因此该实验只把假设支持为一个**描述性机制**，而非已确立的因果发现。
 
-### 5.3 Comparisons with the requested baselines
+### 5.3 与所需基线的比较
 
-Key paired differences against the existing Online and Daily OOFs (full 20-row
-table in `bootstrap.csv`):
+相对现有 Online 与 Daily OOF 的关键配对差异（完整的 20 行表见 `bootstrap.csv`）：
 
-| Config | vs Existing Online | 95% CI | p | vs Existing Daily | 95% CI | p |
+| 配置 | 对比现有 Online | 95% CI | p | 对比现有 Daily | 95% CI | p |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | A | -0.420 | [-1.183, 0.276] | 0.219 | -0.038 | [-0.922, 0.596] | 0.707 |
 | B | 0.000 | [0, 0] | 1.000 | +0.382 | [-0.009, 0.643] | 0.055 |
 | C | -0.729 | [-1.297, 0.194] | 0.145 | -0.347 | [-1.011, 0.502] | 0.518 |
 | D | -0.382 | [-0.643, 0.009] | 0.055 | 0.000 | [0, 0] | 1.000 |
 
-All four configurations also fail to beat Buy & Hold, Constant 1.25 and
-Vol-only: every fold-mean CI crosses zero, and every Holm-adjusted p-value is
-1.0. The full table includes both the fold-mean and the synthetic concatenated
-bootstrap; the fold-mean is the primary result.
+四个配置同样都无法战胜 Buy & Hold、Constant 1.25 与 Vol-only：每个折均 CI 都跨零，且每个经 Holm 调整的 p 值都是 1.0。完整表同时包含折均与合成拼接两种 bootstrap；其中折均是主要结果。
 
-A concrete warning about concatenation: A vs Buy & Hold has a concatenated 95%
-CI of [-1.525, -0.080] (unadjusted p=0.024), while its fold-mean CI is
-[-1.452, 0.133] (p=0.107). A single compounded path can look significant even
-when the equal-weight six-fold result does not. Do not report the concatenated
-return as an investable track record.
+关于拼接有一个具体的警示：A 对 Buy & Hold 的拼接 95% CI 为 [-1.525, -0.080]（未校正 p=0.024），而其折均 CI 为 [-1.452, 0.133]（p=0.107）。单条复利路径可能看起来显著，即使等权六折结果并不显著。不要把拼接收益当作可投资的业绩记录来报告。
 
-## 6. Decision gate
+## 6. 决策门（decision gate）
 
-- **No configuration provides robust incremental value.** B is the best point
-  estimate (1.253), but it is the existing Online OOF and its CIs against Buy &
-  Hold, Constant 1.25 and Vol-only all cross zero.
-- **Feature-builder reconstruction is the leading descriptive explanation for
-  the B→D gap** (D−B -0.382; dynamic builder main effect approximately -0.346),
-  with rolling retraining opposing it (+0.347 to +0.420). The interaction is
-  small (-0.072). This is not statistically established because the six-fold
-  intervals are wide.
-- **The Online advantage can be reproduced only by freezing the feature builder
-  and rolling the model** (B). The current Daily Retrain (D) does not reproduce
-  it; C shows that rebuilding the builder with a frozen model is worse than
-  either. A deployable version of B would need a frozen preprocessing reference
-  and a daily model update.
-- **Stop further GBDT optimization.** No arm shows a reliable gain over the
-  simple baselines. Do not implement Deep Learning in this phase.
-- **Common evaluation interface is ready** for GRU/TCN: same six folds, same
-  labels, `paired_block_bootstrap` for fold-aware paired CIs,
-  `summarize_turnover_adjusted` for turnover-cost stress, and the same
-  fold-mean/concatenated distinction.
+- **没有任何配置提供稳健的增量价值。** B 是最佳点估计（1.253），但它就是现有 Online OOF，且其相对 Buy & Hold、Constant 1.25 与 Vol-only 的 CI 全部跨零。
+- **特征构建器重建是 B→D 差距的首要描述性解释**（D−B -0.382；动态构建器主效应约 -0.346），滚动重训则与之相反（+0.347 至 +0.420）。交互项很小（-0.072）。这并未在统计上得到确立，因为六折区间很宽。
+- **Online 的优势只能通过冻结特征构建器并滚动模型来复现**（B）。当前的日度重训（D）无法复现它；C 表明用冻结模型重建构建器比两者都差。可部署版本的 B 需要冻结的预处理参考与日度模型更新。
+- **停止进一步的 GBDT 优化。** 没有任何实验组显示出相对简单基线的可靠增益。本阶段不实现深度学习。
+- **通用评估接口已就绪**，可供 GRU/TCN 使用：同样的六个折、同样的标签、用于折感知配对 CI 的 `paired_block_bootstrap`、用于换手成本压力的 `summarize_turnover_adjusted`，以及同样的折均/拼接区分。
 
-## 7. Limitations
+## 7. 局限（limitations）
 
-- A/B/D are reused existing OOFs; only C was newly trained. Their wall times are
-  reconstructed from manifest creation to OOF write and include setup/logging;
-  only C has exact in-process timing.
-- C aligns dynamic features to the fixed model's schema. It records zero missing
-  fixed features, but extra dynamic features are ignored. A model that could
-  consume a changing schema is a different experiment.
-- Six fold-level observations give wide paired intervals; Holm correction makes
-  every comparison non-significant. Absence of significance is not proof of
-  equality.
-- The concatenated return is a synthetic diagnostic, not a continuous investable
-  series. Fold gaps are omitted and policy state is reset at fold boundaries.
-- The E14 outage is post-competition and is not part of these six folds; its
-  separate proxy analysis remains in `docs/deployment_eval.md`.
-- The 10 bps turnover cost is an additional stress assumption, not the official
-  competition scoring rule.
+- A/B/D 是复用的现有 OOF，只有 C 是新训练的。它们的实际耗时由 manifest 创建到 OOF 写出重建而来，并包含初始化/日志开销；只有 C 具备进程内的精确计时。
+- C 把动态特征对齐到固定模型的模式。它记录到零个缺失的固定特征，但额外的动态特征被忽略。能够消费不断变化的模式的模型属于另一个实验。
+- 六个折级观测给出很宽的配对区间；Holm 校正使每个比较都不显著。不显著并不证明相等。
+- 拼接收益是合成诊断，不是连续可投资的序列。折间间隔被省略，策略状态在折边界重置。
+- E14 故障（outage）发生在比赛之后，不属于这六个折；其单独的代理分析保留在 `docs/deployment_eval.md`。
+- 10 bps 换手成本是额外的压力假设，不是官方比赛评分规则。
 
-## 8. Artifacts
+## 8. 产物（artifacts）
 
-Scripts and configuration:
+脚本与配置：
 
-- `scripts/run_phase4_dynamic_fixed.py`: new C OOF.
-- `scripts/run_feature_builder_attribution.py`: A/B/C/D assembly, diagnostics,
-  bootstrap and plots.
-- `configs/gdbt/phase4.yaml`: block length, bootstrap reps, cost stress and
-  primary baselines.
-- `common/evaluation.py`: `paired_block_bootstrap`, `holm_adjust`,
-  `summarize_turnover_adjusted` (shared with future GRU/TCN experiments).
+- `scripts/run_phase4_dynamic_fixed.py`：新的 C OOF。
+- `scripts/run_feature_builder_attribution.py`：A/B/C/D 汇总、诊断、bootstrap 与绘图。
+- `configs/gdbt/phase4.yaml`：分块长度、bootstrap 重复次数、成本压力与主要基线。
+- `common/evaluation.py`：`paired_block_bootstrap`、`holm_adjust`、`summarize_turnover_adjusted`（与未来的 GRU/TCN 实验共用）。
 
-Results:
+结果：
 
 - `reports/phase4_attribution/summary.csv`
 - `reports/phase4_attribution/fold_metrics.csv`
@@ -323,8 +239,6 @@ Results:
 - `reports/phase4_attribution/feature_medians_initial.csv`
 - `reports/phase4_attribution/runtime_costs.csv`
 - `reports/phase4_attribution/plots/01..09`
-- `reports/phase4_attribution/oof/` and `manifest.json` (immutable copies and
-  SHA-256 hashes).
+- `reports/phase4_attribution/oof/` 与 `manifest.json`（不可变副本与 SHA-256 哈希）。
 
-Tests: `pytest -q` must remain green; the common evaluation tests cover the
-bootstrap, Holm adjustment and turnover-cost summary.
+测试：`pytest -q` 必须保持通过；通用评估测试覆盖 bootstrap、Holm 校正与换手成本汇总。

@@ -1,315 +1,337 @@
-# Hull Tactical research pipeline
+# Hull Tactical — 市场预测研究管线
 
-Shared data/metric/allocation layer plus two model families:
+面向 Hull Tactical Kaggle 竞赛的可复现研究管线：统一时点数据面板、统一官方评分、共享仓位分配层，以及带严格样本外验证的 GBDT 模型族。
 
+**状态：** 研究基线 · Python 3.12 · 48 项测试 · 1,488 个折外（out-of-fold，OOF）交易日
+**主指标：** 竞赛波动率调整夏普（volatility-adjusted Sharpe）
+**模型：** ElasticNet + XGBoost + LightGBM
+**数据频率：** 日频，每个交易日一行
+
+---
+
+## 1. 项目做什么
+
+原始提交是一份 Kaggle notebook。本项目把它整理成可维护的研究系统：
+
+- **统一数据面板**：比赛数据和每日实盘数据进入同一套字段契约；
+- **统一滚动验证**：所有模型和实验共用同一套滚动前向验证（walk-forward）协议；
+- **统一仓位分配层**：训练、回测和每日推理共用同一个仓位分配策略（allocation policy）；
+- **隔离的 notebook 一致性路径**：历史复现不会污染生产特征路径；
+- **可审计的实验体系**：覆盖基准、部署回放、归因、实盘窗口和特征诊断；
+- **可重复产物**：数据哈希、运行清单、测试和固定配置。
+
+这个仓库的目标不是宣称模型能战胜市场，而是让模型行为可以被测量、复现和审计。
+
+---
+
+## 2. 架构
+
+```mermaid
+flowchart TB
+    subgraph Data [数据层]
+        C["比赛训练 / 测试数据"]
+        L["Hull 每日 CSV"]
+        P["统一数据面板<br/>date_id · target · target_metric · 94 个原始特征"]
+        C --> P
+        L --> P
+        P --> H["数据清单<br/>SHA-256 · 行数 · 日期范围"]
+    end
+
+    subgraph Research [研究层]
+        F["滚动验证折<br/>800 日训练 · 1 日隔离 · 按日历年测试"]
+        B["按折构建特征<br/>覆盖率过滤 + 5 个衍生特征"]
+        M["GBDT 集成模型<br/>ElasticNet + XGBoost + LightGBM"]
+        A["仓位分配策略<br/>波动率目标 · 600/400 信号乘数 · 平滑 · 交易成本"]
+        E["折外评估<br/>官方评分 · IC · 回撤 · 换手率"]
+        P --> F
+        F --> B
+        B --> M
+        M --> A
+        A --> E
+    end
+
+    subgraph Ops [运行层]
+        I["每日数据接入"]
+        Q["predict_latest.py"]
+        S["最新预测 + 仓位状态"]
+        T["systemd 定时器"]
+        L --> I
+        I --> Q
+        Q --> S
+        T --> I
+    end
+
+    E --> R1["reports/ 与 models/ 产物"]
+    S --> R1
 ```
-common/       shared config/data/schema/features/transforms/splits/metrics/
-              allocation/backtest/pipeline/ingest/registry/validation/evaluation
-gdbt/         tabular model family (ElasticNet + XGBoost + LightGBM)
-dl/           sequence model family (interface reserved; not implemented)
-configs/      base config + gdbt CV/phase configs + validation config
-scripts/      thin entry points for replay, CV, live ingest, research phases
-deploy/       systemd service/timer and server installation notes
-docs/         reproduction/validation/deployment/live-window reports
-docs/assets/  architecture.html, architecture.png, core_results.png/svg
-docs/reference/  official competition scoring notebook
-tests/        metric parity, notebook parity, leakage, ingest, research, Phase 6 and Phase 8 tests
-data/manifest.json  data hashes, row counts, date ranges and provenance
+
+各层依赖是单向的：
+
+```text
+common/     数据、字段、特征、变换、切分、指标、仓位分配、回测、
+            管线、数据接入、运行注册、验证
+gdbt/       表格模型族和 notebook 一致性特征构建器
+dl/         序列模型接口，暂未实现
 ```
 
-The repository has completed the GBDT research sequence:
+`common` 不依赖 `gdbt`，`gdbt` 依赖 `common`。这样评估和仓位分配契约就不会绑死在某一个模型族上。
 
-- notebook replay and six-fold walk-forward CV;
-- baseline/ablation and temporal-validation studies;
-- deployment-faithful daily-retrain and E14 stress checks;
-- Phase 4 fixed/dynamic feature-builder and retraining attribution;
-- Phase 5 official 137-day competition-window attribution;
-- Phase 6 signal-by-regime, multiplier, concentration and independent-window
-  robustness checks;
-- Phase 7 final report, decision history and data/version audit;
-- Phase 8 feature-level RankIC diagnosis (read-only; no feature selection).
+### 模型结构
 
-Deep Learning is intentionally not implemented yet; a GBDT incremental-value
-gate precedes it.
+```mermaid
+flowchart LR
+    X["99 个模型输入特征"] --> EN["ElasticNet<br/>alpha 0.01 · L1 0.5"]
+    X --> XG["XGBoost<br/>350 棵树 · 深度 10"]
+    X --> LG["LightGBM<br/>200 棵树 · 深度 10"]
+    EN --> W["加权原始预测<br/>0.45 / 0.55 / 0.45"]
+    XG --> W
+    LG --> W
+    W --> P["仓位分配策略"]
+```
 
-## Start here
+权重沿用原始 notebook，总和为 1.45。一致性配置保留未归一化权重，以便复现提交；所有实验使用同一组固定权重。
 
-- **Final report:** [`docs/final_research_report.md`](docs/final_research_report.md)
-- **Experiment index:** [`docs/experiments.md`](docs/experiments.md)
-- **Decision history:** [`docs/research_decisions.md`](docs/research_decisions.md)
-- **Data audit:** [`docs/data_manifest.md`](docs/data_manifest.md), [`data/manifest.json`](data/manifest.json)
-- **Architecture source:** [`docs/assets/architecture.html`](docs/assets/architecture.html)
+---
 
-![Pipeline architecture](docs/assets/architecture.png)
+## 3. 数据契约
 
-![Core evidence map](docs/assets/core_results.png)
+数据面板每个交易日一行：
 
-### Research verdict
+| 字段 | 含义 |
+| --- | --- |
+| `date_id` | 交易日整数键 |
+| `date` | 日历日期 |
+| `target` | 竞赛目标：`market_forward_excess_returns` |
+| `target_metric` | 评估标签：`forward_returns - risk_free_rate` |
+| `D* E* I* M* P* S* V*` | 94 个匿名市场特征 |
+| `is_scored` | 测试行评分标记 |
 
-| Evidence layer | Result | Reading |
+比赛数据包含 9,048 个训练日。实盘数据是每日更新的超集，尾部存在待实现目标值；待实现行不会被填成 0，也不会被当作已实现标签。
+
+特征契约详见 [`docs/feature_engineering.md`](docs/feature_engineering.md)。
+
+---
+
+## 4. 模型与仓位分配
+
+训练窗口和模型参数由配置固定：
+
+```text
+max_train_rows       800
+min_date_id          37
+missing_threshold    0.5
+vol_window           20
+signal multiplier    600（低 V1）/ 400（高 V1）
+signal clip          0 .. 2
+vol scaling          1.2
+smoothing            0.75 * 新仓位 + 0.25 * 上一期仓位
+transaction cost     3e-5
+```
+
+对日期 `t`，模型只使用 `date_id < t` 且目标已实现的数据训练；预测写入后，才把 `t` 已实现的目标反馈给仓位状态：
+
+```text
+raw_pred     = 0.45 * enet + 0.55 * xgb + 0.45 * lgb
+signal       = clip(raw_pred * multiplier, 0, 2)
+allocation   = clip(signal / (vol * 1.2), 0, 2)
+allocation   = (0.75 * allocation + 0.25 * previous) * (1 - 3e-5)
+```
+
+---
+
+## 5. 防止过拟合的设计
+
+这些是全项目统一执行的控制，不是对信号强度的宣称。
+
+```mermaid
+flowchart LR
+    A["t 之前已实现的数据"] --> B["仅在训练窗口拟合<br/>特征统计量"]
+    B --> C["拟合 ElasticNet / XGBoost / LightGBM"]
+    C --> D["预测 t 的仓位"]
+    D --> E["观察 t 的目标"]
+    E --> F["进入 t + 1"]
+    F --> A
+```
+
+1. **只用滚动前向验证。** 六个日历年折（2015、2017、2019、2021、2023、2025），固定 800 日训练窗口和 1 日隔离间隔（purge gap）；不做随机训练/测试切分，不允许未来行进入训练。
+2. **按折拟合预处理。** 缺失率过滤、中位数和标准化都只在训练窗口上拟合；测试行只使用已保存的统计量做变换。
+3. **显式时间断言。** 训练行必须满足 `train_end < date_id`；归因 OOF 对每一行都做检查。仓位策略只有在预测写入后才看到当期已实现目标。
+4. **隔离 notebook 一致性路径。** 提交 notebook 的历史行为由专用构建器复现；它的填充规则和训练期诊断特征不代表生产特征收益。
+5. **强基准。** 所有模型结果都和买入持有、固定仓位、仅波动率、常数预测消融、折内预测置换对比。
+6. **暴露匹配。** 在线模型除了和买入持有比较，还要和 `lag1`、扩展均值等因果暴露基准比较。
+7. **不在测试窗口选参。** 信号乘数网格、市场状态阈值和检验族在读取赛后窗口之前冻结；锁定窗口不用于选模型或选参数。
+8. **多重检验校正。** 在需要检验族的实验中，使用 HAC/Newey-West 推断、按折分层移动块自助法（moving-block bootstrap）、Holm 校正和 Benjamini–Hochberg 错误发现率（FDR）。
+9. **成本和换手压力测试。** 同时报告官方评分、原始夏普、换手率、最大回撤和按换手率线性计费的压力结果。
+10. **冻结证据。** OOF 文件是不可变证据；归因运行会复制文件并记录 SHA-256，哈希变化即失败，不允许静默覆盖。
+11. **测试作为发布门槛。** 指标一致性、notebook 一致性、泄漏、管线、数据接入和研究辅助函数共覆盖 48 项测试。
+
+这些控制能减少回测虚高的常见来源，但不会把弱信号变成强信号；下面的结果按实际观测报告。
+
+---
+
+## 6. 结果概览
+
+### 六折滚动验证
+
+1,488 个样本外交易日的折均值和连续拼接指标：
+
+| 策略 | 官方评分（折均值） | 官方评分（拼接） | 原始夏普（折均值） | 原始夏普（拼接） | 累计收益（拼接） | 最大回撤（拼接） | 换手率 | 平均仓位 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 买入持有 | **1.498** | **1.280** | 1.498 | 1.280 | 203.9% | -18.0% | 0.001 | 1.000 |
+| 固定仓位 1.25 | 1.411 | 1.204 | 1.481 | 1.264 | 283.3% | -22.3% | 0.001 | 1.250 |
+| 仅波动率 1.0x | 1.267 | 1.151 | 1.486 | 1.329 | 354.9% | -20.6% | 0.066 | 1.200 |
+| GBDT 在线更新 | 1.253 | 1.271 | 1.435 | 1.277 | 191.7% | -20.1% | 0.514 | 0.652 |
+| 每日重训 | 0.871 | 0.808 | 1.114 | 0.966 | 134.1% | -19.3% | 0.520 | 0.659 |
+| GBDT 离线 | 0.833 | 0.419 | 0.992 | 0.629 | 109.5% | -31.8% | 0.304 | 0.495 |
+
+官方评分不是普通夏普：它包含竞赛的波动率惩罚和收益惩罚；原始夏普是未经过这两项惩罚的日收益年化夏普。累计收益和最大回撤按拼接后的 OOF 路径计算，不是一条连续账户曲线；换手率是平均每日仓位变化，不是交易成本本身。完整定义见 [`docs/deployment_eval.md`](docs/deployment_eval.md)。
+
+在这个样本里，GBDT 没有建立稳定的增量优势；严格执行部署路径的每日重训也弱于固定构建器/在线更新的路径。
+
+### 实盘评估期与最终排行榜
+
+竞赛官方实盘评估期是 **2025-12-16 至 2026-06-25**，共 131 个交易日。仓库另外保留到 2026-07-06 的 **137 日研究扩展窗口**；该扩展不属于官方竞赛窗口。
+
+| 证据层 | 分数 | 标签 |
 | --- | ---: | --- |
-| Six-fold CV, fold-mean | B&H 1.498 · Constant 1.25 1.411 · Vol-only 1.267 · Online 1.253 · Daily 0.871 | no stable incremental value |
-| Official live window, 137d | Daily 2.192 (proxy) | strong point estimate, weak inference |
-| Locked post-window, 95d | Daily 1.382 · Offline 2.711 | positive but not statistically significant |
-| Phase 6 multiple testing | daily excess raw p=0.014, Holm p=0.085 | no pre-registered test survives 5% after correction |
+| 官方实盘评估期，仓库每日代理 | 2.148 | 重建 `fwd = target_metric, rf = 0` |
+| 137 日研究扩展 | 2.192 | 本地代理，不是排行榜 |
+| 本地逐行执行 `final_submission.ipynb`，131 日 | 2.25 | 本地 notebook 回放 |
+| Kaggle 最终私有排行榜 | **3.263** | 被选中的 notebook 提交 |
 
-The headline is deliberately not “model beats the market.” The defensible claim is:
-the pipeline reproduces the notebook, exposes the allocation-layer contribution,
-and produces an **inconclusive but auditable** signal. The six limitations are
-documented in the final report: single-window concentration, limited signal
-evidence, no proven CV increment, a 95-day/regime-imbalanced holdout, unproven
-net-of-cost economics, and unstable Daily/Offline ranking across periods.
+131 日官方评估期的风险与交易指标（本地测试，不是 Kaggle 私有排行榜）：
 
+| 协议 | 代理评分 | 原始夏普 | 累计收益 | 最大回撤 | 换手率 | 平均仓位 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 每日重训 | 2.148 | 2.148 | 11.50% | -4.01% | 0.524 | 0.709 |
+| 固定构建器 + 滚动模型 | 2.152 | 2.152 | 11.52% | -4.01% | 0.529 | 0.713 |
+| 离线 | 2.090 | 2.090 | 11.24% | -3.67% | 0.369 | 0.475 |
+| 仅波动率 1.0x | 0.843 | 0.910 | 4.81% | -4.52% | 0.094 | 0.662 |
+| 买入持有 | 0.860 | 0.860 | 6.36% | -9.66% | 0.008 | 1.000 |
+| 固定仓位 1.25 | 0.803 | 0.843 | 7.85% | -11.97% | 0.010 | 1.250 |
 
-## Setup
+`3.263` 是官方私有排行榜分数；本地 notebook 回放和仓库代理不是同一个提交路径，不能直接互换。Kaggle 私有排行榜不提供与本地代理同口径的换手率和回撤，不能用上面的本地指标替代排行榜结果。排行榜对齐过程记录在 [`docs/experiments.md`](docs/experiments.md) 和 Phase 8 报告中。
 
-Python 3.12. A dedicated environment is recommended (do not reuse the Kaggle CLI
-environment):
+### 特征诊断
+
+Phase 8 对 99 个模型输入特征计算时间序列秩相关信息系数（RankIC）：
+
+- 5 个特征通过 Benjamini–Hochberg 校正，q <= 0.05：`E19`、`M1`、`V7`、`V9`、`V13`。
+- `V10` 在模型输入层是边界情况（q = 0.052），在原始特征层显著（q = 0.005）。
+- `D1` 与 `D2` 完全重复。
+- 14 对特征的绝对 Spearman 相关系数 >= 0.90。
+- 这些诊断没有改变模型、特征集合或策略。
+
+详见 [`docs/feature_rankic_analysis.md`](docs/feature_rankic_analysis.md)。
+
+---
+
+## 7. 八个实验阶段
+
+完整报告见 [`docs/experiments.md`](docs/experiments.md)。
+
+| # | 实验 | 核心问题 |
+| --- | --- | --- |
+| 1 | notebook 回放与六折验证 | 管线能否复现 notebook，OOF 基线是什么？ |
+| 2 | 基准与消融 | 模型是否优于买入持有、固定仓位、仅波动率和常数预测？ |
+| 3 | 时间序列验证与暴露匹配 | 结果能否区别于时间置换和暴露匹配的零假设？ |
+| 4 | 部署一致性的每日重训 | 生产协议能否复现在线结果？ |
+| 5 | 特征构建与重训归因 | 差距来自特征重建还是每日模型更新？ |
+| 6 | 官方窗口归因与排行榜对齐 | 实盘分数中信号、乘数和平滑各占多少？ |
+| 7 | 信号稳健性与锁定窗口 | 信号能否经受市场状态、集中度、HAC 和 Holm？ |
+| 8 | 特征级 RankIC | 哪些特征有持续秩相关，冗余程度如何？ |
+
+---
+
+## 8. 目录结构
+
+```text
+common/      共享数据、字段、特征、指标、仓位分配、回测、管线、
+             数据接入、注册、验证
+gdbt/        ElasticNet + XGBoost + LightGBM 模型族
+dl/          序列模型接口，暂未实现
+configs/     基础配置、CV、验证、Phase 4/5/6/8 配置
+scripts/     回放、CV、每日接入、每日任务和研究入口
+tests/       指标一致性、notebook 一致性、泄漏、接入和研究测试
+data/        比赛训练/测试数据、日期映射和数据清单
+deploy/      systemd 服务/定时器和服务器安装说明
+docs/        架构、实验、特征工程和各阶段报告
+reports/     生成的实验产物（gitignored）
+models/      生成的运行产物和模型文件（gitignored）
+```
+
+跟踪数据和生成产物刻意分离。`reports/` 和 `models/` 是可复现输出，不进入 Git。
+
+---
+
+## 9. 快速开始
 
 ```bash
 conda create -n hull python=3.12 -y
 conda activate hull
 pip install -e ".[dev]"
-```
 
-The project dependencies are declared in `pyproject.toml` (polars, pandas,
-numpy, scikit-learn, xgboost, lightgbm, torch, wandb, pyarrow, requests,
-pytest).
-
-## Data
-
-`data/train.csv` and `data/test.csv` are the competition files. `data/date_map.csv`
-maps `date_id` to calendar dates; it is generated from the daily Hull CSV and is
-used by the walk-forward CV.
-
-## Daily data (deployment)
-
-The live source is the full-history CSV at
-`https://www.hulltactical.com/kaggle-dataset-download/`, which 302-redirects to
-`.../wp-content/uploads/kaggle/YYYYMMDD_data.csv`. The source has 96 columns:
-an empty-name date column, `target`, and the same 94 features as `train.csv`.
-The last few target values are pending (`NA`).
-
-```bash
-# resolve the current dated URL only (no body download)
-python scripts/ingest_daily.py --check
-
-# download + validate, but do not write the panel
-python scripts/ingest_daily.py --dry-run
-
-# download, validate, atomically replace data/lake/panel_live.parquet
-python scripts/ingest_daily.py
-
-# ingest + train the last 800 realized rows + predict the latest row
-python scripts/daily_job.py
-```
-
-What the ingest guarantees:
-
-- 96 columns, exactly the 94 training feature names, unique and sorted dates;
-- the first 9,048 dates match `data/date_map.csv` exactly;
-- the competition overlap (`date_id <= 9047`) uses the exact
-  `forward_returns - risk_free_rate` labels, while live rows have null
-  `forward_returns` / `risk_free_rate`;
-- only the tail of the target column may be null (pending labels);
-- a SHA-256 of the raw file, a row count, and any data-quality warnings are
-  written to `data/lake/ingest_state.json`, `ingest_log.jsonl`, and
-  `health.json`;
-- reruns are idempotent: the same source date is skipped unless `--force`.
-
-`scripts/predict_latest.py` trains on the last 800 **realized** rows and writes
-`reports/latest_prediction.json`, one row per data date in
-`data/lake/predictions.parquet`, plus `last_allocation` in the ingest state, so
-the next day's smoothing starts from the previous allocation. Rerunning for the
-same data date reuses the original seed and is reproducible.
-
-Smoke test on 2026-11-21 against the 2026-11-20 file: 9,291 rows, 9,288 realized
-targets, 3 pending, 243 live rows; `date_id=9290`, allocation `1.499955`.
-
-Data-quality caveat in the current source: `E14` is missing from 2026-06-16
-onward (111 rows, including the latest row). The GBDT keeps it because its
-800-row missing rate is 13.9% (below the notebook's 0.5 filter) and
-median-fills it. The ingest reports this in `health.json` and on stdout; watch
-it before trusting live allocations.
-
-The deployment unit, timer and install steps are in `deploy/README.md`.
-
-## Reproduce the notebook (in-sample replay)
-
-```bash
+# 1. notebook 回放（样本内一致性检查）
 python scripts/run_replay.py --no-wandb
-```
 
-This trains on the last 800 rows of `train.csv`, predicts the 10 rows of
-`test.csv` one by one, applies the notebook's allocation policy, and scores the
-9 `is_scored` rows. The replay is **in-sample** by construction: the test rows
-are historical copies of train rows. Use the CV for an honest estimate.
+# 2. 六折滚动验证（样本外）
+python scripts/run_cv.py --offline --no-wandb
 
-The pipeline's allocations match the executed notebook code to <1e-6 (see
-`tests/test_notebook_parity.py`).
-
-## Walk-forward CV (out-of-sample)
-
-```bash
-python scripts/run_cv.py --no-wandb
-```
-
-Six folds (2015, 2017, 2019, 2021, 2023, 2025), each with a rolling 800-day
-training window, a 1-day purge gap and a calendar-year test block. Reports
-per-fold score, Sharpe, IC, direction accuracy and mean allocation.
-
-## Baseline and ablation experiments
-
-```bash
+# 3. 基准与消融
 python scripts/run_experiments.py --shuffles 1000
-```
 
-This runs Buy & Hold, constant allocations, volatility-only, constant-forecast
-ablation and a within-fold prediction shuffle on the saved CV OOF. Results,
-methodology and charts are in `docs/experiments.md`; raw records are under
-`reports/experiments/` (ignored by git). Headline: Buy & Hold mean score 1.4975,
-online model 1.2530, offline model 0.8332, volatility-only 1.0x 1.2665.
-
-## GBDT validation before deep learning
-
-```bash
-python scripts/run_validation.py
-```
-
-This runs the temporal nulls, paired block bootstrap, causal exposure-matched
-baselines, prediction-quality analysis and allocation attribution on the saved
-OOF. The decision report is `docs/gbdt_validation.md`; the decision log is
-`docs/research_decisions.md`. Headline: no reliable incremental value was
-detected over Buy & Hold / Constant 1.25 / Vol-only, so DL is not started yet.
-The deployment-faithful daily-retrain check in `docs/deployment_eval.md` reaches
-the same verdict: mean official score 0.871 versus Online 1.253 and below the
-simple baselines.
-
-## Deployment-faithful daily retrain
-
-```bash
-python scripts/run_daily_retrain.py
-python scripts/compare_deployment_modes.py
-python scripts/run_e14_stress.py
-```
-
-The daily-retrain run retrains the three GBDT models on the last 800 realized
-rows before every test day, then compares Daily Retrain, Offline, Online,
-Buy & Hold, Constant 1.25 and Vol-only with the same scoring and allocation
-rules. Results are under `reports/deployment_eval/`; the E14 stress test is
-post-competition and proxy-scored because the live source has no `fwd/rf`.
-
-## Feature-builder and retraining attribution
-
-```bash
-python scripts/run_phase4_dynamic_fixed.py
-python scripts/run_feature_builder_attribution.py
-```
-
-This runs the 2×2 factorial (fixed/dynamic feature builder × fixed/rolling
-model), reuses the immutable Offline/Online/Daily OOFs, creates the missing
-dynamic-builder/fixed-model OOF, and reports feature, prediction, allocation,
-turnover and paired block-bootstrap diagnostics. See
-`docs/feature_builder_attribution.md`. Headline: no configuration has robust
-incremental value; dynamic builder reconstruction is the leading descriptive
-cause of the Online→Daily gap, but the six-fold intervals remain wide.
-
-## Competition-window attribution
-
-```bash
-python scripts/run_phase5_window_attribution.py
-```
-
-This runs the signal-direction, prediction-shuffle, multiplier, smoothing,
-prediction-bin, monthly and volatility-regime ablations on the 137-day official
-live window. See `docs/phase5_competition_window_attribution.md`.
-
-## Phase 6 signal robustness and independent validation
-
-```bash
-python scripts/score_live_window.py \
-  --start 2026-07-07 --end 2026-11-17 --warmup-start 2026-07-07 \
-  --output reports/live_window_20260707_20261117
-python scripts/run_phase6_signal_robustness.py
-```
-
-Phase 6 pre-registers the multiplier grid, regimes, concentration tests and
-HAC/block-bootstrap family before reading the post-2026-07-06 window. Results
-are in `docs/phase6_signal_robustness.md` and
-`reports/phase6_signal_robustness/`. Headline: positive point estimates remain,
-but none of the six pre-registered official-window tests survives Holm
-correction; the independent 95-day window is positive for Daily Retrain and
-Offline but is not statistically significant. Do not select a multiplier or
-model from these post-window results.
-
-## Phase 7 report and audit
-
-```bash
-python scripts/make_phase7_assets.py
-python scripts/build_data_manifest.py
+# 4. 全量测试
 pytest -q
 ```
 
-This rebuilds the presentation figures, refreshes `data/manifest.json`, and
-runs the full test audit. The final narrative, limitations and artifact index are
-in `docs/final_research_report.md`.
-
-## Phase 8 feature-level RankIC diagnosis
+特征诊断需要先有 OOF；脚本会按顺序使用 `--oof`、配置路径、最新的离线 CV 产物，并提供明确报错：
 
 ```bash
 python scripts/run_phase8_feature_rankic.py \
   --config configs/gdbt/phase8.yaml
 ```
 
-This is a read-only diagnostic over the 1,488 six-fold OOF dates. It rebuilds
-the fold-specific, point-in-time model inputs one date at a time; it does not
-train a model or modify the OOF. Results are in
-`docs/feature_rankic_analysis.md` and `reports/feature_rankic_*` /
-`reports/feature_rankic_figures/`.
+---
 
-Headline: 94 raw + 5 derived features form a 99-feature model-input union. Five
-features (E19, M1, V7, V9, V13) pass BH FDR at q<=0.05 in the model-input
-representation; V10 is borderline (q=0.052) and significant in the raw
-representation (q=0.005). D1/D2 are exact duplicates; 14 pairs have |rho|>=0.90.
-No feature is selected, no model is retrained, and the high-vol regime is too
-imbalanced for a regime rule.
+## 10. 复现规则
 
-## Weights & Biases
+- `pyproject.toml` 是唯一依赖源；不再使用 `requirements.txt`。
+- 每次运行在 `models/<run_id>/` 下写入运行清单和模型产物。
+- `data/manifest.json` 记录数据哈希、行数和日期范围。
+- 归因分析前会复制 OOF 并记录哈希；哈希变化时停止，不允许静默覆盖。
+- `docs/reference/hull-competition-sharpe.ipynb` 用于对保存的仓位执行官方评分，以验证指标实现。
+- 仓库不会自动执行 `kaggle submit`，提交始终由人工完成。
 
-W&B is now part of CoreWeave Forge. With SDK >= 0.31 the default API endpoint
-is `https://api.forge.coreweave.com` and the app is at
-`https://forge.coreweave.com/wandb`. Create API keys at
-`https://forge.coreweave.com/settings`; existing `api.wandb.ai` keys keep
-working. Set `WANDB_BASE_URL` in `.env` only for a dedicated/self-managed W&B
-server.
+---
 
-Tracking is opt-in at the entry point and is not initialised on import.
+## 11. 范围与限制
 
-1. Copy `.env.example` to `.env`.
-2. Put your key in `WANDB_API_KEY=...` (the file is gitignored; never commit it).
-3. Run without `--no-wandb`:
+- OOF 是六段不连续日历年的 1,488 个交易日，不是一条连续账户曲线。
+- 私有排行榜是一条已实现的实盘路径，不是第二次独立回测。
+- 本地 `2.192` / `2.25` 是重建代理；Kaggle `3.263` 是被选中提交的官方私有分数。
+- 模型尚未证明在扣除成本后能稳定跑赢简单基准；在 GBDT 结论明确前，不启动深度学习。
+
+---
+
+## 12. 文档
+
+| 文档 | 内容 |
+| --- | --- |
+| [`docs/experiments.md`](docs/experiments.md) | 八个实验阶段和结果 |
+| [`docs/feature_engineering.md`](docs/feature_engineering.md) | 特征契约、衍生特征和选择依据 |
+| [`docs/final_research_report.md`](docs/final_research_report.md) | 综合研究报告和限制 |
+| [`docs/feature_rankic_analysis.md`](docs/feature_rankic_analysis.md) | Phase 8 特征级 RankIC 报告 |
+| [`docs/repro_gdbt.md`](docs/repro_gdbt.md) | 环境、命令和产物清单 |
+| [`docs/data_manifest.md`](docs/data_manifest.md) | 数据来源和哈希 |
+| [`docs/research_decisions.md`](docs/research_decisions.md) | D1–D17 决策记录 |
+
+## 13. 部署
+
+每日任务：
 
 ```bash
-python scripts/run_replay.py
-python scripts/run_cv.py
+python scripts/ingest_daily.py
+python scripts/daily_job.py
 ```
 
-If `WANDB_API_KEY` is missing, the tracker raises a clear error and prints the
-`--no-wandb` escape hatch. `WANDB_MODE=offline` works without a key.
-
-Logged artifacts: run config, train diagnostics, per-fold metrics, prediction
-tables, model joblib, manifest with git SHA and data hashes.
-
-## Notes
-
-- The old `common/transformers.py`, `common/setup_env.py` and
-  `gdbt/data_processor.py` are kept for reference only. The new pipeline uses
-  `common/transforms.py`, `common/config.load_env`, `common/tracker.py` and
-  `gdbt/features.py`.
-- `market_forward_excess_returns` (the competition target) is not exactly
-  `forward_returns - risk_free_rate`; the stable offset is ~0.0003112/day. The
-  panel keeps both `target` and `target_metric = fwd - rf`; the notebook replay
-  uses the competition target for parity, the CV/allocator can use `target_metric`.
-- No `kaggle submit` is ever run by this repository; submissions remain manual.
-- The DL family will implement the same `Predictor` + `DatasetBuilder` contracts
-  and reuse the same CV, metrics and allocation policy.
+`deploy/` 包含 systemd 服务和定时器。任务会校验源数据字段与日期重叠，原子替换实盘面板，预测最新已实现行，并保留上一期仓位用于平滑。服务器安装步骤见 [`deploy/README.md`](deploy/README.md)。

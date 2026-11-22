@@ -1,34 +1,26 @@
-# Phase 8 — Feature-level RankIC Analysis
+# 第 8 阶段（Phase 8）— 特征级 RankIC 分析
 
-Date: 2026-11-22  
-Repository: `/home/yys/Hull_Tactical_solution`  
-Script: `scripts/run_phase8_feature_rankic.py`  
-Config: `configs/gdbt/phase8.yaml`  
-Input: six-fold OOF dates from
-`models/20261121_170606_gdbt_notebook_cv_offline_ae2a75/oof_predictions.csv`
+- 日期：2026-11-22
+- 仓库：`/home/yys/Hull_Tactical_solution`
+- 脚本：`scripts/run_phase8_feature_rankic.py`
+- 配置：`configs/gdbt/phase8.yaml`
+- 输入：`models/*_gdbt_notebook_cv_offline_*/oof_predictions.csv` 下最新的六折离线交叉验证（cross-validation，CV）OOF（自动发现；如需固定其他运行，使用 `--oof`）
 
-> This phase is diagnostic only. No model was trained, no OOF file was modified,
-> no feature was selected, and no allocation/multiplier/smoothing parameter was
-> changed.
+> 本阶段仅作诊断。未训练任何模型，未修改任何 OOF 文件，未选择任何特征，也未改动任何资产配置（allocation）、乘数（multiplier）或平滑（smoothing）参数。
 
-## 1. Research Question
+## 1. 研究问题
 
-Does an individual feature have a directional, time-series association with
-future returns, and is that association stable across OOF folds, rolling
-windows and volatility regimes? How redundant are the model-input features?
-Do any associations survive multiple-testing correction?
+单个特征是否与未来收益存在方向性的时间序列关联，且该关联在 OOF 各折、滚动窗口（rolling window）与波动率状态（volatility regime）之间是否稳定？模型输入特征之间的冗余程度如何？是否有任何关联能在多重检验（multiple testing）校正后仍然成立？
 
-The output is a description of feature-level association, **not** evidence of
-independent predictive value, tradable alpha, or a reason to add/remove a
-feature.
+本输出是对特征级关联的描述，**并非**独立预测价值、可交易 alpha 的证据，也不构成增删特征的依据。
 
-## 2. Data & Methodology
+## 2. 数据与方法
 
-### 2.1 Dates and labels
+### 2.1 日期与标签
 
-The six OOF test blocks are exactly the existing CV blocks:
+六个 OOF 测试区块与既有交叉验证区块完全一致：
 
-| Fold | Test days | Test date_ids | Train days |
+| 折（Fold） | 测试日数 | 测试 date_ids | 训练日数 |
 | --- | ---: | --- | ---: |
 | 2015 | 252 | 6301–6552 | 800 |
 | 2017 | 251 | 6805–7055 | 800 |
@@ -37,145 +29,109 @@ The six OOF test blocks are exactly the existing CV blocks:
 | 2023 | 250 | 8315–8564 | 800 |
 | 2025 | 231 | 8817–9047 | 800 |
 
-Total: **1,488 OOF dates**. The OOF file is read only; its SHA-256 is recorded
-in the manifest.
+合计：**1,488 个 OOF 日期**。OOF 文件仅被读取；其 SHA-256 记录在清单（manifest）中。
 
-`target_metric = forward_returns - risk_free_rate` is used as the future target.
-The model training target is `target` (market forward excess return), but
-`target_metric` is the label used by the OOF evaluation and is the relevant
-future return for this analysis. This also means the rank association is not
-the exact training objective.
+`target_metric = forward_returns - risk_free_rate` 用作未来目标。模型训练目标是 `target`（市场远期超额收益），但 `target_metric` 是 OOF 评估所使用的标签，也是本分析所关注的未来收益。这也意味着秩关联并不等同于训练目标本身。
 
-### 2.2 Feature representations
+### 2.2 特征表示
 
-Three related representations are reported, without treating them as
-independent tests:
+报告三种相互关联的表示，但不将其视为独立检验：
 
-| Representation | Count | Definition |
+| 特征表示 | 数量 | 定义 |
 | --- | ---: | --- |
-| Raw features | 94 | Original D/E/I/M/P/S/V columns in `panel` |
-| Derived features | 5 | `U1`, `U2`, `V1_S1`, `M11_V1`, `I9_S1` |
-| Model-input features | 99 union | Fold-specific `NotebookFeatureBuilder.features` |
+| 原始特征 | 94 | `panel` 中原始的 D/E/I/M/P/S/V 列 |
+| 派生特征 | 5 | `U1`、`U2`、`V1_S1`、`M11_V1`、`I9_S1` |
+| 模型输入特征 | 99（并集） | 各折特定的 `NotebookFeatureBuilder.features` |
 
-The model-input set is not constant: the notebook's missing-rate filter and
-fold-specific training windows select **97, 98, 98, 99, 99, 99** features.
-`E7` is unavailable in 2015/2017/2019; `V10` is unavailable in 2015. They remain
-in the 99-feature union and are reported as missing, never silently dropped.
+模型输入集合并不固定：notebook（笔记本脚本）的缺失率过滤与各折特定的训练窗口分别选出 **97、98、98、99、99、99** 个特征。`E7` 在 2015/2017/2019 不可用；`V10` 在 2015 不可用。它们仍保留在 99 特征并集中，并以缺失形式报告，绝不静默丢弃。
 
-### 2.3 Point-in-time feature construction
+### 2.3 时点（point-in-time）特征构建
 
-For each fold:
+对每一折：
 
-1. Fit `NotebookFeatureBuilder` only on that fold's 800 training dates.
-2. Build each test date **one at a time** with
-   `build(panel, [date], with_target=False)`, matching the model's daily
-   prediction path.
-3. Read `target_metric` for that date only after the feature row is built.
+1. 仅在该折的 800 个训练日期上拟合 `NotebookFeatureBuilder`。
+2. 使用 `build(panel, [date], with_target=False)` **逐日**构建每个测试日，与模型的每日预测路径一致。
+3. 仅在特征行构建完成之后，才读取该日的 `target_metric`。
 
-This avoids the notebook builder's I-column backward fill crossing into a later
-test date. A truncation check on two folds produced a maximum absolute feature
-difference of **0.0**; the manifest records `leakage_check_passed=true`.
+这样可避免该 notebook 构建器对 I 列的向后填充跨越到后续测试日。对两折执行的截断检查得到的最大绝对特征差为 **0.0**；清单记录 `leakage_check_passed=true`。
 
-Raw values are read directly from the panel and derived values are row-wise
-transforms of raw values. No future panel row enters either representation.
+原始值直接从面板数据（panel）读取，派生值是原始值的按行变换。两种表示都不引入任何未来的面板数据行。
 
-### 2.4 RankIC definitions
+### 2.4 RankIC 定义
 
-For one feature \(j\):
+对单个特征 \(j\)：
 
 ```text
 IC_j = Spearman(X_j, Y)
 ```
 
-This is a **time-series RankIC across OOF dates**, not a daily cross-sectional
-IC. Separate correlations are computed:
+这是**跨 OOF 日期的时间序列 RankIC**，而非日度横截面 IC。分别计算以下相关：
 
-- overall: all valid OOF dates for that feature;
-- fold: each fold's valid dates;
-- rolling: within each fold, 60- and 120-day trailing windows (no cross-fold
-  window);
-- regime: low/mid/high volatility using the project's existing causal
-  definition: 20-day trailing volatility thresholds from each fold's training
-  dates.
+- 总体：该特征的全部有效 OOF 日期；
+- 折：每一折的有效日期；
+- 滚动：每一折内部的 60 天与 120 天滚动窗口（不跨折）；
+- 波动率状态：按项目既有的因果定义划分低/中/高波动，即取自各折训练日期的 20 日滚动波动率阈值。
 
-The summary reports fold `mean`, `median`, `std`, `ICIR = mean/std`,
-`positive_fold_ratio`, and the number of available folds. The overall pooled IC
-is kept separately; it is not a substitute for the fold mean.
+汇总报告折 `mean`、`median`、`std`、`ICIR = mean/std`、`positive_fold_ratio` 以及可用折数。合并总体 IC 单独保留；它不能替代折均值。
 
-### 2.5 Inference
+### 2.5 推断
 
-- Raw p-value from `scipy.stats.spearmanr` for each feature's time-series IC.
-- **Fold-stratified moving-block bootstrap**: block length 20, 2,000
-  replications, resampling within each fold before concatenation. This is the
-  primary uncertainty diagnostic.
-- **Benjamini–Hochberg FDR** separately over the 99 model-input features and
-  over the 94 raw features; q<=0.05 is reported.
-- No feature is selected or ranked for model use based on these results.
+- 每个特征时间序列 IC 的原始 p 值来自 `scipy.stats.spearmanr`。
+- **按折分层的移动分块自助法（bootstrap）**：分块长度 20、重复 2,000 次，在各折内重采样后再拼接。这是主要的不确定性诊断。
+- **Benjamini–Hochberg FDR**（错误发现率，false discovery rate）：分别对 99 个模型输入特征与 94 个原始特征进行校正；报告 q<=0.05。
+- 不依据这些结果选择任何特征，也不据此为模型用途对特征排序。
 
-### 2.6 Missing, constant and outlier handling
+### 2.6 缺失、常量与异常值处理
 
-- `n_valid` / `missing_ratio` include fold-level unavailability.
-- Constants and near-zero-variance columns are flagged, not deleted.
-- Robust-z outlier counts are flagged, not winsorized or removed.
+- `n_valid` / `missing_ratio` 计入折级不可用情况。
+- 常量与近零方差列会被标记，但不删除。
+- 稳健 z 分数（robust-z）异常值计数会被标记，但不做缩尾（winsorize）或删除。
 
-## 3. Overall Feature RankIC
+## 3. 总体特征 RankIC
 
-Top positive and negative features by fold-mean RankIC (model-input
-representation):
+按折均值 RankIC 排序居前的正向与负向特征（模型输入特征表示）：
 
-| Feature | Class | Mean RankIC | Median | Std | ICIR | Positive folds | Overall IC | q_BH | Bootstrap 95% CI |
+| 特征 | 类别 | 均值 RankIC | 中位数 | 标准差 | ICIR | 正向折数 | 总体 IC | q_BH | 自助法 95% CI |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| E19 | raw | **0.1100** | 0.1166 | 0.0381 | 2.89 | 6/6 | 0.1107 | **0.0019** | [0.0599, 0.1442] |
-| M1 | raw | **0.1146** | 0.1331 | 0.0584 | 1.96 | 6/6 | 0.1031 | **0.0027** | [0.0583, 0.1395] |
-| V7 | raw | **0.1042** | 0.1215 | 0.0431 | 2.42 | 6/6 | 0.1018 | **0.0027** | [0.0561, 0.1344] |
-| V9 | raw | **0.1024** | 0.1108 | 0.0413 | 2.48 | 6/6 | 0.0949 | **0.0061** | [0.0535, 0.1270] |
-| V13 | raw | 0.0715 | 0.0677 | 0.0447 | 1.60 | 6/6 | 0.0869 | **0.0157** | [0.0468, 0.1238] |
-| V10 | raw | 0.1014 | 0.0850 | 0.0428 | 2.37 | 5/5 available | 0.0839 | 0.0521 | [0.0364, 0.1194] |
-| P2 | raw | 0.1182 | 0.1201 | 0.0408 | 2.90 | 6/6 | 0.0189 | 0.8224 | [-0.0174, 0.0664] |
-| P11 | raw | **−0.1362** | −0.1206 | 0.0317 | −4.30 | 0/6 | −0.0328 | 0.5599 | [-0.0798, 0.0073] |
-| E3 | raw | **−0.1347** | −0.1114 | 0.0449 | −3.00 | 0/6 | −0.0405 | 0.4369 | [-0.0818, 0.0025] |
-| E2 | raw | **−0.1340** | −0.1197 | 0.0331 | −4.05 | 0/6 | −0.0347 | 0.5434 | [-0.0779, 0.0102] |
-| P10 | raw | −0.1108 | −0.1125 | 0.0349 | −3.18 | 0/6 | −0.0685 | 0.1168 | [-0.1101, -0.0241] |
+| E19 | 原始 | **0.1100** | 0.1166 | 0.0381 | 2.89 | 6/6 | 0.1107 | **0.0019** | [0.0599, 0.1442] |
+| M1 | 原始 | **0.1146** | 0.1331 | 0.0584 | 1.96 | 6/6 | 0.1031 | **0.0027** | [0.0583, 0.1395] |
+| V7 | 原始 | **0.1042** | 0.1215 | 0.0431 | 2.42 | 6/6 | 0.1018 | **0.0027** | [0.0561, 0.1344] |
+| V9 | 原始 | **0.1024** | 0.1108 | 0.0413 | 2.48 | 6/6 | 0.0949 | **0.0061** | [0.0535, 0.1270] |
+| V13 | 原始 | 0.0715 | 0.0677 | 0.0447 | 1.60 | 6/6 | 0.0869 | **0.0157** | [0.0468, 0.1238] |
+| V10 | 原始 | 0.1014 | 0.0850 | 0.0428 | 2.37 | 5/5 可用 | 0.0839 | 0.0521 | [0.0364, 0.1194] |
+| P2 | 原始 | 0.1182 | 0.1201 | 0.0408 | 2.90 | 6/6 | 0.0189 | 0.8224 | [-0.0174, 0.0664] |
+| P11 | 原始 | **−0.1362** | −0.1206 | 0.0317 | −4.30 | 0/6 | −0.0328 | 0.5599 | [-0.0798, 0.0073] |
+| E3 | 原始 | **−0.1347** | −0.1114 | 0.0449 | −3.00 | 0/6 | −0.0405 | 0.4369 | [-0.0818, 0.0025] |
+| E2 | 原始 | **−0.1340** | −0.1197 | 0.0331 | −4.05 | 0/6 | −0.0347 | 0.5434 | [-0.0779, 0.0102] |
+| P10 | 原始 | −0.1108 | −0.1125 | 0.0349 | −3.18 | 0/6 | −0.0685 | 0.1168 | [-0.1101, -0.0241] |
 
-Five of 99 model-input features pass BH at q<=0.05: **E19, M1, V7, V9, V13**.
-`V10` is borderline at q=0.052 in the model-input representation. The raw
-representation gives six significant features (the same five plus `V10`,
-q=0.0051); this representation sensitivity is itself a reason not to treat the
-feature list as a fixed discovery set.
+99 个模型输入特征中有五个通过 q<=0.05 的 BH 校正：**E19、M1、V7、V9、V13**。`V10` 在模型输入表示下处于边界（q=0.052）。原始特征表示给出六个显著特征（同样的五个加上 `V10`，q=0.0051）；这种表示敏感性本身就说明，不应把该特征列表当作固定的发现集合。
 
-There is an important split between **fold-mean** and **pooled overall** IC:
+**折均值**与**合并总体** IC 之间存在重要分歧：
 
-- P2 has mean fold IC +0.118 and is positive in all six folds, but pooled overall
-  IC is only +0.019 and q=0.82.
-- P11 has mean fold IC −0.136 and is negative in all six folds, but pooled overall
-  IC is −0.033 and q=0.56.
-- E2/E3 show the same pattern.
+- P2 的折均值 IC 为 +0.118，且在六折中全部为正，但合并总体 IC 仅为 +0.019，q=0.82。
+- P11 的折均值 IC 为 −0.136，且在六折中全部为负，但合并总体 IC 为 −0.033，q=0.56。
+- E2/E3 呈现相同模式。
 
-This is not a contradiction to hide: fold composition, nonstationarity and
-rank distribution changes matter. The fold-mean and pooled metrics must be
-reported together; neither alone is a complete result.
+这不是需要隐藏的矛盾：折的构成、非平稳性以及秩分布变化都会产生影响。折均值与合并指标必须一并报告；任何单独一项都不是完整结果。
 
-No constant or zero-variance feature was found in the model-input union.
-Several features have many robust-z outliers (E4=193, E13=83, E11=58, P6=54,
-E12=43, M6=32), but they were retained. `E7` has 733/1,488 observations
-(50.7% missing) and is marked `insufficient`; `V10` has 1,236 observations
-(16.9% missing) and five available folds.
+模型输入并集中未发现常量或零方差特征。若干特征存在大量稳健 z 分数异常值（E4=193、E13=83、E11=58、P6=54、E12=43、M6=32），但均予保留。`E7` 有 733/1,488 个观测（缺失 50.7%），标记为 `insufficient`；`V10` 有 1,236 个观测（缺失 16.9%）与五个可用折。
 
-## 4. OOF Fold Stability
+## 4. OOF 折稳定性
 
-Stability label counts across the 99 model-input features:
+99 个模型输入特征的稳定性标签计数：
 
-| Label | Count | Definition |
+| 标签 | 数量 | 定义 |
 | --- | ---: | --- |
-| stable_positive | 22 | positive in at least `n_available-1` folds; mean > 0 |
-| stable_negative | 20 | negative in at least `n_available-1` folds; mean < 0 |
-| single_period | 53 | few strong folds; no stable sign |
-| mixed | 3 | direction changes across folds |
-| insufficient | 1 | fewer than four available folds (`E7`) |
+| stable_positive | 22 | 在至少 `n_available-1` 折中为正；均值 > 0 |
+| stable_negative | 20 | 在至少 `n_available-1` 折中为负；均值 < 0 |
+| single_period | 53 | 少数强折；无稳定符号 |
+| mixed | 3 | 方向在折间改变 |
+| insufficient | 1 | 可用折少于四个（`E7`） |
 
-Selected fold-level ICs:
+部分折级 IC：
 
-| Feature | 2015 | 2017 | 2019 | 2021 | 2023 | 2025 |
+| 特征 | 2015 | 2017 | 2019 | 2021 | 2023 | 2025 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | E19 | 0.136 | 0.047 | 0.146 | 0.097 | 0.082 | 0.152 |
 | M1 | 0.202 | 0.032 | 0.140 | 0.136 | 0.047 | 0.131 |
@@ -188,24 +144,17 @@ Selected fold-level ICs:
 | E2 | −0.107 | −0.123 | −0.202 | −0.147 | −0.109 | −0.117 |
 | E3 | −0.094 | −0.099 | −0.201 | −0.192 | −0.098 | −0.124 |
 
-The five BH-significant positive features are directionally consistent in all
-available folds. This is stronger than a single pooled correlation, but it is
-still six macro-period samples, not six independent market histories.
+五个 BH 显著的正向特征在所有可用折中方向一致。这比单一的合并相关更强，但仍然只是六个宏观时期样本，而非六段独立的市场历史。
 
-The many `single_period` labels are deliberately not promoted into a feature
-shortlist. They may be real episode-specific effects, or rank noise; this phase
-does not have a pre-registered follow-up test that would distinguish those.
+大量 `single_period` 标签被有意排除在特征候选清单之外。它们可能是真实的特定时期效应，也可能是秩噪声；本阶段没有预先注册的后续检验来区分二者。
 
-## 5. Rolling Stability
+## 5. 滚动稳定性
 
-Rolling windows are computed **inside each fold** for 60 and 120 days, so a
-window never crosses a fold boundary. The full series are in
-`feature_rankic_rolling.parquet`; sign runs are in
-`feature_rankic_rolling_runs.csv`.
+滚动窗口**在各折内部**计算，长度为 60 天与 120 天，因此任何窗口都不会跨折边界。完整序列见 `feature_rankic_rolling.parquet`；同号连续段见 `feature_rankic_rolling_runs.csv`。
 
-Examples:
+示例：
 
-| Feature | 120d mean | 120d positive share | 120d sign flips |
+| 特征 | 120 日均值 | 120 日正值占比 | 120 日符号翻转次数 |
 | --- | ---: | ---: | ---: |
 | P11 | −0.187 | 0.000 | 0 |
 | E2 | −0.187 | 0.000 | 0 |
@@ -218,36 +167,28 @@ Examples:
 | V10 | 0.124 | 0.977 | 3 |
 | E19 | 0.123 | 1.000 | 0 |
 
-P11/E2/E3 and P2 are almost always on one side of zero in the 120-day rolling
-series, but P10/M9 show frequent sign changes. The rolling evidence is
-descriptive: no window is selected as "best" and no rolling result is used to
-choose a model or feature set.
+P11/E2/E3 与 P2 在 120 日滚动序列中几乎始终位于零的同一侧，而 P10/M9 出现频繁的符号变化。滚动证据属于描述性：没有选择任何窗口作为“最佳”，也没有用任何滚动结果来选择模型或特征集。
 
-## 6. Regime Dependence
+## 6. 波动率状态依赖
 
-The project's existing causal regime definition is reused: 20-day trailing
-volatility of `target_metric`, with low/mid/high thresholds from each fold's
-800-day training window. The total test-day counts are:
+沿用项目既有的因果状态定义：`target_metric` 的 20 日滚动波动率，低/中/高阈值取自各折的 800 日训练窗口。测试日总数如下：
 
-| Regime | Test days | Coverage |
+| 波动率状态 | 测试日数 | 覆盖情况 |
 | --- | ---: | --- |
-| Low volatility | 603 | all six folds |
-| Mid volatility | 593 | five folds satisfy n>=20 |
-| High volatility | 292 | 2015, 2019, 2021 (7 days), 2025; 2017 and 2023 have no high-vol test days |
+| 低波动 | 603 | 全部六折 |
+| 中波动 | 593 | 五折满足 n>=20 |
+| 高波动 | 292 | 2015、2019、2021（7 天）、2025；2017 与 2023 无高波动测试日 |
 
-Because the high-vol bucket is concentrated in a few folds and 2021 has only
-seven high-vol days, **all high-vol cells are marked inconclusive** (only three
-folds meet the 20-day minimum). `E7` (one high-vol fold) and `V10` (two) are
-especially thin.
+由于高波动分组集中在少数几折，且 2021 年仅有七个高波动日，**所有高波动单元均标记为不确定（inconclusive）**（仅三折达到 20 天最低要求）。`E7`（一个高波动折）与 `V10`（两个）尤为单薄。
 
-Features with the same sign in all three regimes:
+三种状态下符号一致的特征：
 
-- positive: **P2, M1, E7, V10, E19, M11, V9, V7, V13, S5, M14, M13**;
-- negative: **E2, E3, P11, P8, P10, M9, P5, M4, S8, M7, P3, S2**.
+- 正向：**P2, M1, E7, V10, E19, M11, V9, V7, V13, S5, M14, M13**；
+- 负向：**E2, E3, P11, P8, P10, M9, P5, M4, S8, M7, P3, S2**。
 
-Examples of regime magnitude:
+各波动率状态下的量级示例：
 
-| Feature | Low vol | Mid vol | High vol |
+| 特征 | 低波动 | 中波动 | 高波动 |
 | --- | ---: | ---: | ---: |
 | P2 | 0.135 | 0.062 | 0.173 |
 | M1 | 0.115 | 0.093 | 0.150 |
@@ -256,19 +197,15 @@ Examples of regime magnitude:
 | E3 | −0.175 | −0.062 | −0.177 |
 | P11 | −0.146 | −0.072 | −0.178 |
 
-The high-vol magnitudes are often larger for the positive features, but the
-sample is 292 days across only a few folds; this is a description of this OOF
-sample, not a regime-timing rule. The low/mid/high labels are not re-optimized.
+高波动状态下的量级对正向特征往往更大，但样本仅为跨少数几折的 292 天；这是对本 OOF 样本的描述，而非波动率状态择时规则。低/中/高标签未做重新优化。
 
-## 7. Feature Redundancy
+## 7. 特征冗余
 
-Pairwise Spearman correlations use model-input values and pairwise-complete
-dates. There are **4,851 pairs**; **14 pairs** have |rho| >= 0.90 and form
-**10 connected clusters**:
+两两斯皮尔曼（Spearman）相关使用模型输入值与成对完整日期。共有 **4,851 对**；**14 对**的 |rho| >= 0.90，构成 **10 个连通簇**：
 
-| Cluster | Features |
+| 簇 | 特征 |
 | --- | --- |
-| 1 | **D1, D2** (exact duplicate, rho=1.000) |
+| 1 | **D1, D2**（完全重复，rho=1.000） |
 | 2 | E16, E17 |
 | 3 | E3, P11 |
 | 4 | I2, U1 |
@@ -279,130 +216,82 @@ dates. There are **4,851 pairs**; **14 pairs** have |rho| >= 0.90 and form
 | 9 | V1, V2, V4, V8 |
 | 10 | V7, V9, V10 |
 
-Group-level mean absolute correlations (selected):
+组级平均绝对相关（部分）：
 
-| Group pair | Mean |rho| | Pairs |
+| 组对 | 平均 rho（绝对值） | 对数 |
 | --- | ---: | ---: |
-| derived × E | 0.520 | 5 |
+| 派生 × E | 0.520 | 5 |
 | I × E | 0.426 | 9 |
 | V × V | 0.400 | 78 |
 | V × E | 0.374 | 13 |
-| derived × V | 0.358 | 5 |
+| 派生 × V | 0.358 | 5 |
 
-The 99 model-input features are therefore not 99 independent observations:
-D1/D2 is an exact duplicate, and several volatility/derived clusters are highly
-redundant. This is a statement about feature geometry, not a reason to delete
-any column; no feature was removed.
+因此 99 个模型输入特征并不是 99 个独立观测：D1/D2 是完全重复，若干波动率/派生簇高度冗余。这是关于特征几何结构的陈述，不是删除任何列的理由；未移除任何特征。
 
-## 8. Multiple Testing Results
+## 8. 多重检验结果
 
-Model-input features (99 tests, BH FDR):
+模型输入特征（99 次检验，BH FDR）：
 
-| Feature | Mean RankIC | raw p | q_BH | Bootstrap 95% CI | Significant |
+| 特征 | 均值 RankIC | 原始 p 值 | q_BH | 自助法 95% CI | 是否显著 |
 | --- | ---: | ---: | ---: | --- | --- |
-| E19 | 0.1100 | 0.000019 | 0.00185 | [0.0599, 0.1442] | yes |
-| M1 | 0.1146 | 0.000068 | 0.00274 | [0.0583, 0.1395] | yes |
-| V7 | 0.1042 | 0.000083 | 0.00274 | [0.0561, 0.1344] | yes |
-| V9 | 0.1024 | 0.000246 | 0.00610 | [0.0535, 0.1270] | yes |
-| V13 | 0.0715 | 0.000791 | 0.01565 | [0.0468, 0.1238] | yes |
-| V10 | 0.1014 | 0.003156 | 0.05207 | [0.0364, 0.1194] | borderline |
-| P2 | 0.1182 | 0.465178 | 0.822 | [-0.0174, 0.0664] | no |
-| P11 | −0.1362 | 0.205774 | 0.560 | [-0.0798, 0.0073] | no |
+| E19 | 0.1100 | 0.000019 | 0.00185 | [0.0599, 0.1442] | 是 |
+| M1 | 0.1146 | 0.000068 | 0.00274 | [0.0583, 0.1395] | 是 |
+| V7 | 0.1042 | 0.000083 | 0.00274 | [0.0561, 0.1344] | 是 |
+| V9 | 0.1024 | 0.000246 | 0.00610 | [0.0535, 0.1270] | 是 |
+| V13 | 0.0715 | 0.000791 | 0.01565 | [0.0468, 0.1238] | 是 |
+| V10 | 0.1014 | 0.003156 | 0.05207 | [0.0364, 0.1194] | 边界 |
+| P2 | 0.1182 | 0.465178 | 0.822 | [-0.0174, 0.0664] | 否 |
+| P11 | −0.1362 | 0.205774 | 0.560 | [-0.0798, 0.0073] | 否 |
 
-Raw representation (94 tests) adds `V10` as significant (q=0.0051), so the
-model-input vs raw distinction changes one decision. Derived features (5
-tests) have no BH-significant result; `M11_V1` has mean +0.078 but q=0.326.
+原始特征表示（94 次检验）将 `V10` 也列为显著（q=0.0051），因此模型输入与原始特征表示的区分会改变一个判断。派生特征（5 次检验）没有 BH 显著结果；`M11_V1` 均值为 +0.078，但 q=0.326。
 
-The block-bootstrap confidence intervals for the five model-input significant
-features exclude zero in this sample. That is still **not** independent
-confirmation: the test is on the same OOF dates used to discover the result,
-and the features are not independent of each other.
+五个模型输入显著特征的分块自助法置信区间在本样本中不含零。这仍然**不是**独立确认：检验使用的是用于发现该结果的同一批 OOF 日期，且这些特征彼此并不独立。
 
-## 9. Limitations
+## 9. 局限性
 
-- **Non-contiguous OOF folds.** The six test years are separated by gaps. A
-  pooled 1,488-day rank correlation is not a continuous account; fold means are
-  therefore reported beside the pool.
-- **Feature-set drift.** Model input has 97/98/98/99/99/99 features across
-  folds. `E7` and `V10` are unavailable in early folds; missingness is reported,
-  but there is no single fixed 99-column input history.
-- **One market observation per day.** This is a time-series RankIC, not a
-  cross-sectional breadth test. It cannot tell whether a feature ranks assets
-  or contributes conditional information.
-- **RankIC is not model contribution.** Correlated features, nonlinear
-  interactions, LightGBM/XGBoost interactions, allocation and volatility scaling
-  are outside this univariate analysis.
-- **Target definition.** `target_metric` is the OOF evaluation label; the model
-  trains on `target` (market forward excess return). The difference is small but
-  nonzero.
-- **Regime imbalance.** High vol has only 292 test days and is concentrated in
-  a few folds; 2017 and 2023 have no high-vol test days. Regime results are
-  descriptive and often inconclusive.
-- **Multiple testing is not a discovery guarantee.** BH and block bootstrap
-  reduce false positives but do not create an independent sample. No post-2025
-  holdout was used here.
-- **Economic value is not tested.** There is no transaction-cost, capacity,
-  financing or turnover analysis for a feature-based strategy; this phase does
-  not construct one.
+- **OOF 折不连续。** 六个测试年份之间存在间隔。合并的 1,488 天秩相关并不是一份连续记录；因此折均值与合并结果并列报告。
+- **特征集漂移。** 模型输入在各折分别有 97/98/98/99/99/99 个特征。`E7` 与 `V10` 在早期折不可用；缺失情况已报告，但并不存在单一固定的 99 列输入历史。
+- **每日仅一个市场观测。** 这是时间序列 RankIC，而非横截面广度检验。它无法说明某特征是否能为资产排序，或是否提供条件信息。
+- **RankIC 不等于模型贡献。** 相关特征、非线性交互、LightGBM/XGBoost 交互、资产配置与波动率缩放均在此单变量分析范围之外。
+- **目标定义。** `target_metric` 是 OOF 评估标签；模型训练使用 `target`（市场远期超额收益）。二者差异很小但非零。
+- **波动率状态不平衡。** 高波动仅有 292 个测试日，且集中在少数几折；2017 与 2023 无高波动测试日。波动率状态结果属于描述性，且常常不确定。
+- **多重检验不构成发现保证。** BH 与分块自助法可减少假阳性，但无法创造独立样本。此处未使用 2025 年之后的留出集（holdout）。
+- **未检验经济价值。** 对基于特征的策略没有交易成本、容量、融资或换手率分析；本阶段也不构建此类分析。
 
-## 10. Final Findings / Research Decision
+## 10. 最终结论 / 研究决策
 
-### 10.1 Are there features with relatively stable cross-fold direction?
+### 10.1 是否存在跨折方向相对稳定的特征？
 
-Yes, descriptively. 22 features are `stable_positive`, 20 are
-`stable_negative`, and five positive features survive BH: **E19, M1, V7, V9,
-V13**. `V10` is stable but representation-sensitive (model q=0.052, raw
-q=0.005). P2 and P11 have strong fold-mean signs but weak pooled IC and are not
-BH-significant; they should not be called stable discoveries.
+存在，但仅为描述性。22 个特征为 `stable_positive`，20 个为 `stable_negative`，且有五个正向特征通过 BH 校正：**E19、M1、V7、V9、V13**。`V10` 稳定但对表示敏感（模型 q=0.052，原始 q=0.005）。P2 与 P11 的折均值符号很强，但合并 IC 较弱且未通过 BH 显著；不应称其为稳定发现。
 
-### 10.2 Is there regime dependence?
+### 10.2 是否存在波动率状态依赖？
 
-Yes. The same-sign lists and magnitude table show that some associations are
-stronger in high vol, while P11/E2/E3 are negative across all three regimes.
-However, high-vol coverage is only 292 days and concentrated in a few folds;
-`E7`/`V10` high-vol cells are explicitly inconclusive. No regime-specific
-feature rule is established.
+存在。同号列表与量级表显示，部分关联在高波动下更强，而 P11/E2/E3 在三种状态下均为负。但高波动覆盖仅 292 天且集中于少数几折；`E7`/`V10` 的高波动单元明确不确定。未建立任何波动率状态特定的特征规则。
 
-### 10.3 How redundant are the features?
+### 10.3 特征冗余程度如何？
 
-Substantially. D1/D2 are exact duplicates; 14 pairs exceed |rho|=0.90; 10
-clusters exist, including V1/V2/V4/V8 and V7/V9/V10. The effective feature
-geometry is smaller than 99 independent signals. This is diagnostic only; no
-column was removed.
+相当高。D1/D2 完全重复；14 对超过 |rho|=0.90；存在 10 个簇，包括 V1/V2/V4/V8 与 V7/V9/V10。有效特征几何结构小于 99 个独立信号。这仅为诊断；未删除任何列。
 
-### 10.4 Does statistical significance survive multiple testing?
+### 10.4 统计显著性是否通过多重检验？
 
-Five of 99 model-input features survive BH at q<=0.05, with block-bootstrap CIs
-excluding zero in this sample. Raw representation has six (adding V10); derived
-features have none. These are **associations on the discovery OOF**, not
-independent validation and not evidence of incremental model value.
+99 个模型输入特征中有五个通过 q<=0.05 的 BH 校正，其分块自助法置信区间在本样本中不含零。原始特征表示有六个（增加 `V10`）；派生特征没有。这些是**在发现所用 OOF 上的关联**，不是独立验证，也不是增量模型价值的证据。
 
-### 10.5 What does this help us understand about the model?
+### 10.5 这对理解模型有何帮助？
 
-The model-input set contains several variables with consistent positive
-time-series rank association (M1, E19, V7, V9, V13) and several consistent
-negative associations (P11, E3, E2, P10). These are anonymized market variables,
-so economic interpretation must remain cautious; the result is better read as
-"the model has access to persistent market-state correlates" than as a named
-macro factor story.
+模型输入集合中有若干变量具有一致的正向时间序列秩关联（M1、E19、V7、V9、V13），也有若干一致的负向关联（P11、E3、E2、P10）。它们是匿名化的市场变量，因此经济解释必须保持谨慎；该结果更宜理解为“模型可获得持续存在的市场状态相关变量”，而非某个具名宏观因子的叙事。
 
-### 10.6 Is follow-up research needed?
+### 10.6 是否需要后续研究？
 
-No new model hypothesis is strong enough to justify feature selection, model
-retraining, multiplier changes or a new strategy search from this phase. The
-correct stopping point is:
+本阶段没有任何新的模型假设强到足以支持特征选择、模型重训、乘数调整或新的策略搜索。正确的停止点是：
 
-- keep all features and the frozen GBDT pipeline;
-- treat this RankIC report as a diagnostic map;
-- if a future phase wants to test a feature hypothesis, pre-register it and use
-  an independent window, not these OOF dates;
-- do not promote the five BH-positive features into a new model without such a
-  test.
+- 保留全部特征与冻结的 GBDT 流水线；
+- 将本 RankIC 报告视为诊断地图；
+- 若未来阶段要检验某个特征假设，应预先注册，并使用独立窗口，而非这些 OOF 日期；
+- 在没有此类检验的情况下，不要把五个 BH 显著特征提升为新模型。
 
-**Phase 8 ends here. No feature selection, no model optimization, no strategy
-change.**
+**第 8 阶段到此结束。不做特征选择、不做模型优化、不做策略变更。**
 
-## 11. Artifacts and Reproduction
+## 11. 产出物与复现
 
 ```text
 scripts/run_phase8_feature_rankic.py
@@ -431,13 +320,16 @@ reports/feature_rankic_figures/05_feature_correlation_heatmap.png
 reports/feature_rankic_figures/06_mean_vs_std_scatter.png
 ```
 
-Reproduce:
+复现：
 
 ```bash
+# 若当前克隆尚无 OOF，请先构建。
+python scripts/run_cv.py --offline --no-wandb
+
 python scripts/run_phase8_feature_rankic.py \
   --config configs/gdbt/phase8.yaml
 ```
 
-The manifest records the OOF/panel SHA-256, 1,488 dates, feature counts,
-fold feature sets, regime counts, bootstrap settings, FDR alpha and the
-point-in-time leakage check.
+第二条命令会自动发现最新的 `models/*_gdbt_notebook_cv_offline_*/oof_predictions.csv`；使用 `--oof` 可固定某个具体运行。若不存在 OOF，命令会显式失败并提示先运行离线 CV 命令。
+
+清单记录 OOF/panel 的 SHA-256、1,488 个日期、特征计数、各折特征集、状态计数、自助法设置、FDR alpha 以及时点泄漏检查。

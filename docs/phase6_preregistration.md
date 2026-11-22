@@ -1,93 +1,91 @@
-# Phase 6 pre-registration: signal robustness and regime attribution
+# 第 6 阶段预注册：信号稳健性与市场状态归因
 
-Frozen before running the post-2026-07-06 validation.
+> 口径说明：本预注册写于最终提交前，原文把 2025-12-16 至 2026-07-06（137 个交易日）称为官方窗口。赛后确认官方评估期为 **2025-12-16 至 2026-06-25（131 个交易日）**；137 日窗口实际是研究扩展。为保持预注册的历史完整性，下面的冻结协议和原文口径不追溯改写，但不应再把 137 日解释为官方私有窗口。
 
-## Windows
+在运行 2026-07-06 之后的验证之前冻结。
 
-- Official window: **2025-12-16 through 2026-07-06** (137 trading days).
-- Independent post-window: **2026-07-07 through 2026-11-17** (95 realized
-  trading days; 2026-11-18 through 2026-11-20 targets are still pending).
-- No target or feature after the scored date is used for a prediction.
+## 时间窗口
 
-## Strategies frozen for the post-window
+- 原文所称“官方窗口”：**2025-12-16 至 2026-07-06**（137 个交易日；赛后确认这 137 日实际是研究扩展窗口）。
+- 独立的后置窗口：**2026-07-07 至 2026-11-17**（已实现 95 个交易日；
+  2026-11-18 至 2026-11-20 的目标值仍待定）。
+- 不使用评分日期之后的任何目标值或特征进行预测。
 
-| Name | Definition | Role |
+## 为后置窗口冻结的策略
+
+| 名称 | 定义 | 角色 |
 | --- | --- | --- |
-| Daily Retrain | dynamic builder + full daily refit | primary |
-| Fixed builder + rolling | builder frozen at 2026-07-06, model updated daily | secondary |
-| Offline | builder/model frozen at 2026-07-06 | secondary |
-| Vol-only 1.0x | causal volatility target, same smoothing/cost | control |
-| Buy & Hold | constant 1.0 | control |
-| Constant 1.25 | constant 1.25 | control |
+| Daily Retrain | 动态构建器（builder）+ 每日全量重新拟合 | 主策略 |
+| Fixed builder + rolling | 构建器冻结于 2026-07-06，模型每日更新 | 次级 |
+| Offline | 构建器/模型冻结于 2026-07-06 | 次级 |
+| Vol-only 1.0x | 因果（causal）波动率目标，相同的平滑/成本设定 | 对照 |
+| Buy & Hold | 常数 1.0 | 对照 |
+| Constant 1.25 | 常数 1.25 | 对照 |
 
-No new model family, hyperparameter, feature, threshold or allocation rule will
-be introduced for the independent window. The post-window is read only after
-this protocol and `configs/gdbt/phase6.yaml` are fixed. Its results will not be
-used to choose a multiplier, regime threshold, or test family.
+独立窗口不会引入新的模型族、超参数、特征、阈值或配置规则。只有在本文档与
+`configs/gdbt/phase6.yaml` 固定之后，才会读取后置窗口的结果。其结果不会用于
+选择乘数、状态阈值或检验族。
 
-## Signal × regime
+## 信号 × 市场状态
 
-Volatility regimes are classified with the **pre-official-window** 800-day
-causal volatility distribution, using its 33rd and 67th percentiles:
+波动率状态（volatility regime）依据**研究窗口之前**的 800 日因果波动率分布
+（causal volatility distribution）划分，采用该分布的第 33 与第 67 百分位数：
 
-- low volatility: `vol <= q33`
-- mid volatility: `q33 < vol < q67`
-- high volatility: `vol >= q67`
+- 低波动率：`vol <= q33`
+- 中波动率：`q33 < vol < q67`
+- 高波动率：`vol >= q67`
 
-For each regime report: n, Rank IC, Pearson IC, Q1/Q2/Q3/Q4/Q5 mean
-`target_metric`, and Q5−Q1. Quantiles are equal-count within the regime.
+对每个状态报告：n、Rank IC、Pearson IC、Q1/Q2/Q3/Q4/Q5 的平均
+`target_metric`，以及 Q5−Q1。分位数（quantile）在各状态内部按等数量划分。
 
-## Multiplier grid
+## 乘数网格
 
-The following grid is fixed before looking at outcomes:
+以下网格在查看结果之前即已固定：
 
 ```
 1, 50, 100, 200, 300, 400, 500, 600, 800, 1000, 1200
 ```
 
-`1` means no multiplier; `400` and `600` include the fixed-multiplier cases.
-The original 600/400 switch is shown separately. For each value report mean
-allocation, strategy volatility, official score, raw Sharpe, cumulative return,
-maximum drawdown, turnover, and return penalty. The purpose is a robustness
-curve, not selecting the best value from the test window.
+`1` 表示不施加乘数；`400` 与 `600` 包含固定乘数的情形。原始的 600/400 切换
+单独列示。对每个取值报告平均配置比例、策略波动率、官方评分、原始 Sharpe、
+累计收益、最大回撤（maximum drawdown）、换手率（turnover）与收益惩罚
+（return penalty）。其目的是给出稳健性曲线（robustness curve），而不是从
+测试窗口中选择最优取值。
 
-## Signal concentration
+## 信号集中度
 
-For January 2026 and April 2026:
+针对 2026 年 1 月与 2026 年 4 月：
 
-- daily contribution to the strategy return: `position × target_metric`;
-- leave-one-day-out: remove the day and recompute the full-window official
-  score and cumulative return;
-- block deletion: remove every contiguous block of length 3 and 5 within the
-  month and recompute the full-window score/return; report the distribution of
-  deltas and the most influential block;
-- concentration share: top 1/3/5 day contributions and the number of positive
-  days needed to account for 50% of the month's positive contribution.
+- 对策略收益的每日贡献：`position × target_metric`；
+- 留一日法（leave-one-day-out）：剔除该日，重新计算全窗口的官方评分与累计
+  收益；
+- 分块删除（block deletion）：剔除该月内长度为 3 和 5 的每一个连续分块，
+  重新计算全窗口的评分/收益；报告差值的分布与影响最大的分块；
+- 集中度份额（concentration share）：前 1/3/5 个交易日的贡献，以及占该月正
+  贡献 50% 所需的盈利交易日数量。
 
-## Statistical tests
+## 统计检验
 
-Pre-registered primary family (Holm correction across these six tests):
+预先注册的主要检验族（对这六项检验进行 Holm 校正）：
 
-1. Daily mean strategy excess > 0;
-2. Daily vs Buy & Hold mean return difference > 0;
-3. Daily vs Constant 1.25 mean return difference > 0;
-4. Daily vs Vol-only mean return difference > 0;
-5. Rank IC > 0;
-6. Q5−Q1 > 0.
+1. 策略的日度平均超额收益 > 0；
+2. Daily 与 Buy & Hold 的平均收益差 > 0；
+3. Daily 与 Constant 1.25 的平均收益差 > 0；
+4. Daily 与 Vol-only 的平均收益差 > 0；
+5. Rank IC > 0；
+6. Q5−Q1 > 0。
 
-Inference:
+推断方式：
 
-- Newey-West/HAC standard errors for mean returns and mean differences, with
-  **10 lags**;
-- moving-block bootstrap with **block length 20**, **2,000 replications** for
-  score-difference confidence intervals;
-- Holm adjustment across the six tests; report unadjusted and adjusted p-values.
+- 对平均收益与平均收益差使用 Newey-West/HAC 标准误，滞后阶数为 **10**；
+- 对评分差值的置信区间使用移动分块 bootstrap，**分块长度 20**、**重复
+  2,000 次**；
+- 对六项检验进行 Holm 调整；同时报告未调整与调整后的 p 值。
 
-A positive raw Sharpe is not treated as evidence by itself.
+正的原始 Sharpe 本身不被视为证据。
 
-## Independent post-window
+## 独立的后置窗口
 
-The same six-test family and the same descriptive diagnostics are computed on
-2026-07-07 through 2026-11-17. This is a confirmatory out-of-sample readout, not
-a new model-selection round. No post-window result is allowed to alter the
-frozen protocol.
+同一六项检验族与相同的描述性诊断均在 2026-07-07 至 2026-11-17 上计算。
+这是一次确认性的样本外（out-of-sample）读数，而不是新一轮的模型选择。
+任何后置窗口的结果都不得改变已冻结的协议。

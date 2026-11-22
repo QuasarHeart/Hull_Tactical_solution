@@ -1,99 +1,69 @@
-# Deployment-faithful evaluation (Phase 3)
+# 部署一致性评估（第 3 阶段）
 
-## Question
+## 问题
 
-The previous six-fold OOF used a fixed model (offline) or a rolling update that
-kept the initial feature builder (online). Both are useful research protocols,
-but neither exactly matches the deployed job, which rebuilds the feature
-pipeline and retrains the three GBDT models every day on the last 800 realized
-rows.
+此前的六折 OOF（Out-of-Fold，样本外）采用固定模型（离线），或采用保留初始特征构建器的滚动更新（在线）。两者都是有用的研究协议，但都不完全等同于实际部署任务：部署作业每天在最近 800 条已实现样本上重建特征管道，并重新训练三个 GBDT（Gradient Boosted Decision Tree，梯度提升决策树）模型。
 
-This phase asks a narrower question:
+本阶段提出一个更窄的问题：
 
-> If we replay the deployment logic over the six historical test folds, does the
-> model still add value over Offline, Online, Buy & Hold, Constant 1.25 and
-> Vol-only under the same allocation and cost rules?
+> 若在六个历史测试折上重放部署逻辑，在相同的配置（allocation）与成本规则下，模型是否仍能相对 Offline、Online、Buy & Hold、Constant 1.25 与 Vol-only 提供增量价值？
 
-It also checks whether the 111-row E14 outage that starts after the competition
-period changes the picture, and whether a missing indicator is justified.
+同时检验：竞赛期之后开始、共 111 行的 E14 中断是否会改变结论，以及增加缺失指示变量是否有依据。
 
-## Daily-retrain protocol
+## 每日重训练协议
 
-For every test day `t` in the existing six folds:
+对现有六折中的每个测试日 `t`：
 
-1. Select training rows with `target` non-null and `date_id < t`; keep the last
-   800 rows. No future row, and no row whose target was not yet realized, enters
-   the training set.
-2. Rebuild `NotebookFeatureBuilder` on that window: missing-rate filtering,
-   median imputation, derived features and calendar features are recomputed
-   using only the past window. This is stricter than the online protocol, which
-   keeps the initial builder.
-3. Refit ElasticNet, XGBoost and LightGBM with the notebook hyperparameters.
-4. Predict `t`, apply the notebook allocation policy and update the policy with
-   the realized `t` target after the prediction.
-5. Reinitialize the allocation state at the start of every fold, so folds are
-   independent; smoothing never carries across a fold boundary.
+1. 选取 `target` 非空且 `date_id < t` 的训练行，只保留最后 800 行。任何未来行、以及目标尚未实现的行，都不得进入训练集。
+2. 在该窗口上重建 `NotebookFeatureBuilder`：缺失率过滤、中位数插补、衍生特征与日历特征均仅使用过去的窗口重新计算。这比保留初始构建器的在线协议更严格。
+3. 使用 notebook 超参数重新拟合 ElasticNet、XGBoost 与 LightGBM。
+4. 预测 `t`，应用 notebook 中的配置策略，并在预测之后用已实现的 `t` 目标更新策略。
+5. 每折开始时重置配置状态，使各折相互独立；平滑不会跨越折边界。
 
-The resulting OOF is saved with `train_start`, `train_end`, `n_train`,
-component predictions, volatility and allocation, which makes the no-leakage
-check auditable (`train_end < date_id` for every row).
+得到的 OOF 会保存 `train_start`、`train_end`、`n_train`、各分量预测、波动率与配置，使无泄漏检查可审计（每行均满足 `train_end < date_id`）。
 
-## Strategies compared
+## 对比策略
 
-| Strategy | Position source |
+| 策略 | 仓位来源 |
 | --- | --- |
-| Daily retrain | This phase's causal, rebuild-every-day OOF |
-| Offline | Existing six-fold fixed-model OOF |
-| Online | Existing six-fold rolling-update OOF |
-| Buy & Hold | Constant 1.0 |
-| Constant 1.25 | Constant 1.25 |
-| Vol-only 1.0x | Same volatility target, smoothing and cost, no return prediction |
+| Daily retrain | 本阶段因果式、每日重建的 OOF |
+| Offline | 现有六折固定模型 OOF |
+| Online | 现有六折滚动更新 OOF |
+| Buy & Hold | 常数 1.0 |
+| Constant 1.25 | 常数 1.25 |
+| Vol-only 1.0x | 相同的波动率目标、平滑与成本，不做收益预测 |
 
-Model strategies and Vol-only include the notebook multiplicative transaction
-cost. Buy & Hold and Constant 1.25 are static positions and therefore do not
-trade every day; their turnover is a diagnostic, not a cost-matched comparison.
+模型策略与 Vol-only 计入 notebook 的乘法交易成本。Buy & Hold 与 Constant 1.25 为静态仓位，因此不会每日交易；其换手率仅作诊断指标，并非成本对齐后的比较。
 
-## Metrics
+## 评估指标
 
-All strategies are evaluated on the same fold dates and the same labels:
+所有策略都在相同的折日期与相同的标签上评估：
 
-- **Official Score**: the competition's adjusted Sharpe, with volatility and
-  return penalties.
-- **Raw Sharpe**: annualized Sharpe of the strategy return before the
-  competition penalties.
-- **Cumulative return**: compounded strategy return over the concatenated OOF.
-- **Maximum drawdown**: worst peak-to-trough loss on the concatenated OOF.
-- **Turnover**: mean absolute daily position change.
+- **官方评分（Official Score）**：竞赛调整后的 Sharpe，含波动率与收益惩罚。
+- **原始 Sharpe（Raw Sharpe）**：竞赛惩罚前的策略收益年化 Sharpe。
+- **累计收益（Cumulative return）**：拼接 OOF 上的复利策略收益。
+- **最大回撤（Maximum drawdown）**：拼接 OOF 上最差的峰谷损失。
+- **换手率（Turnover）**：日均仓位变动绝对值。
 
-Both fold-level means and concatenated OOF metrics are reported; the former
-gives each regime equal weight, the latter reflects a single capital path.
+同时报告折均值与拼接 OOF 指标；前者让每个市场状态等权，后者反映单一资金路径。
 
-## E14 stress test
+## E14 压力测试
 
-The recent E14 outage starts on 2026-06-16, after the last six-fold test day
-(2025-12-03), so it cannot affect the six-fold OOF. To evaluate it, the live
-panel's realized post-competition window is used as an exploratory holdout.
-Three feature treatments are compared:
+最近的 E14 中断始于 2026-06-16，晚于最后一个六折测试日（2025-12-03），因此不可能影响六折 OOF。为评估其影响，使用实盘面板竞赛后已实现窗口作为探索性留出集。比较三种特征处理方式：
 
-- `current_median`: production behavior, median fill;
-- `drop_e14`: remove E14 after feature selection;
-- `e14_indicator`: median fill plus a binary `E14_MISSING` feature.
+- `current_median`：生产行为，中位数填充；
+- `drop_e14`：在特征筛选后移除 E14；
+- `e14_indicator`：中位数填充并附加二元 `E14_MISSING` 特征。
 
-The live source does not publish `forward_returns` or `risk_free_rate`, so this
-window uses proxy scores (`fwd = target_metric`, `rf = 0`) and is not a
-leaderboard-comparable result. The static setting is
-`--retrain-every 999`; the rolling setting is `--retrain-every 20`. The combined
-chart is produced by `scripts/plot_e14_comparison.py`.
+实盘数据源不发布 `forward_returns` 与 `risk_free_rate`，因此该窗口使用代理评分（`fwd = target_metric`、`rf = 0`），并非可与排行榜比较的结果。静态设置为 `--retrain-every 999`；滚动设置为 `--retrain-every 20`。合并图表由 `scripts/plot_e14_comparison.py` 生成。
 
-## Results
+## 结果
 
-Run: `models/20261121_193718_gdbt_daily_retrain_263fee` (1,488 test days;
-`train_end < date_id` for every row). Comparison artifacts:
-`reports/deployment_eval/`.
+运行：`models/20261121_193718_gdbt_daily_retrain_263fee`（1,488 个测试日；每行均满足 `train_end < date_id`）。对比产物：`reports/deployment_eval/`。
 
-### Unified six-fold comparison
+### 六折统一对比
 
-| Strategy | Official score (fold mean) | Official score (continuous) | Raw Sharpe (fold mean) | Raw Sharpe (continuous) | Cumulative return | Max drawdown | Turnover | Mean allocation |
+| 策略 | 官方评分（折均值） | 官方评分（连续） | 原始 Sharpe（折均值） | 原始 Sharpe（连续） | 累计收益 | 最大回撤 | 换手率 | 平均配置 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | Daily retrain | 0.871 | 0.808 | 1.114 | 0.966 | 134.1% | -19.3% | 0.520 | 0.659 |
 | Offline | 0.833 | 0.419 | 0.992 | 0.629 | 109.5% | -31.8% | 0.304 | 0.495 |
@@ -102,9 +72,9 @@ Run: `models/20261121_193718_gdbt_daily_retrain_263fee` (1,488 test days;
 | Constant 1.25 | 1.411 | 1.204 | 1.481 | 1.264 | 283.3% | -22.3% | 0.001 | 1.250 |
 | Vol-only 1.0x | 1.267 | 1.151 | 1.486 | 1.329 | 354.9% | -20.6% | 0.066 | 1.200 |
 
-Fold-level official scores:
+折级官方评分：
 
-| Fold | Daily retrain | Offline | Online | Buy & Hold | Constant 1.25 | Vol-only |
+| 折 | Daily retrain | Offline | Online | Buy & Hold | Constant 1.25 | Vol-only |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | 2015 | 0.348 | 0.226 | 0.460 | 0.011 | -0.007 | 0.076 |
 | 2017 | 0.572 | 0.316 | 0.521 | 2.784 | 2.643 | 2.942 |
@@ -113,109 +83,59 @@ Fold-level official scores:
 | 2023 | 1.653 | 0.166 | 2.851 | 1.396 | 1.314 | 0.753 |
 | 2025 | -0.099 | -0.049 | -0.107 | 0.618 | 0.569 | 0.405 |
 
-The stricter protocol **does not reproduce the earlier Online result**. Daily
-retrain averages 0.871 versus 1.253 for Online, and it is below Buy & Hold
-(1.498), Constant 1.25 (1.411) and Vol-only (1.267). Its mean score is only 0.038
-above Offline, while its continuous score (0.808) is better than Offline (0.419)
-but still below Online and the simple baselines.
+更严格的协议**未能复现此前的 Online 结果**。每日重训练的折均值为 0.871，而 Online 为 1.253，且低于 Buy & Hold（1.498）、Constant 1.25（1.411）与 Vol-only（1.267）。其平均评分仅比 Offline 高 0.038，连续评分（0.808）优于 Offline（0.419），但仍低于 Online 与简单基线。
 
-The difference is concentrated in 2021 (0.386 daily vs 1.205 Online) and 2023
-(1.653 vs 2.851); Daily retrain only wins 2017 and, marginally, 2025 against
-Online. Overall raw-prediction correlation with Online is 0.897 and allocation
-correlation is 0.801, so the signals are similar; the gap is a different
-allocation path, not a completely different model. Sampled 2021 windows still
-contain 99 features, so the gap is not explained by features being dropped.
-A plausible but unproven explanation is calibration/path drift from rebuilding
-medians and refitting every day; this needs a controlled fixed-feature versus
-dynamic-feature experiment before being treated as a cause.
+差异集中在 2021 年（每日重训练 0.386，Online 1.205）与 2023 年（1.653 对 2.851）；相对 Online，每日重训练仅在 2017 年取胜，并在 2025 年以微弱优势取胜。总体上，原始预测与 Online 的相关性为 0.897，配置相关性为 0.801，说明两者信号相似；差距来自不同的配置路径，而非完全不同的模型。抽样的 2021 年窗口中仍包含 99 个特征，因此差距并非由特征被剔除所致。一个合理但未经证实的解释是：每日重建中位数并重新拟合带来的校准/路径漂移；在将其视为原因之前，需要做固定特征与动态特征的受控实验。
 
-Turnover is 0.520 for Daily retrain versus 0.514 for Online and 0.066 for
-Vol-only. The model therefore buys no cost advantage from the daily rebuild.
-Its maximum drawdown (-19.3%) is slightly better than Online (-20.1%), but this
-does not compensate for lower return and Sharpe.
+换手率为：每日重训练 0.520，Online 0.514，Vol-only 0.066。因此，每日重建并未给模型带来成本优势。其最大回撤（-19.3%）略优于 Online（-20.1%），但不足以弥补收益与 Sharpe 的下降。
 
-Fold-paired differences (Daily retrain minus baseline, official score) are
-negative on average against every comparator: Online -0.382 (2/6 folds
-positive), Buy & Hold -0.626 (3/6), Constant 1.25 -0.540 (3/6), Vol-only
--0.395 (3/6). With only six folds these are descriptive, not a significance
-test; they show the loss is not driven by one outlier fold.
+折配对差异（每日重训练减基线，官方评分）相对每个对照项的平均值均为负：Online -0.382（2/6 折为正）、Buy & Hold -0.626（3/6）、Constant 1.25 -0.540（3/6）、Vol-only -0.395（3/6）。仅有六折，这些结果只是描述性的，并非显著性检验；它们表明损失并非由单一异常折驱动。
 
-### E14 stress test
+### E14 压力测试
 
-The recent E14 outage starts on **2026-06-16**, while the last six-fold test day
-is **2025-12-03**. The overlap with the six-fold OOF is therefore **0 rows**;
-the outage cannot explain any of the Phase 2 or Phase 3 OOF results.
+最近的 E14 中断始于 **2026-06-16**，而最后一个六折测试日为 **2025-12-03**。因此，其与六折 OOF 的重叠为 **0 行**；该中断无法解释第 2 阶段（Phase 2）或第 3 阶段（Phase 3）OOF 结果中的任何部分。
 
-For the post-competition live window (108 realized days, 2026-06-16 to
-2026-11-17), proxy scores are:
+对于竞赛后的实盘窗口（108 个已实现日，2026-06-16 至 2026-11-17），代理评分为：
 
-| Setting | Variant | Proxy score | Cumulative return | Max drawdown | Turnover | Mean allocation |
+| 设置 | 变体 | 代理评分 | 累计收益 | 最大回撤 | 换手率 | 平均配置 |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| Static pre-outage model | Current median | 1.864 | 7.9% | -2.6% | 0.432 | 0.332 |
-| Static pre-outage model | Drop E14 | 1.647 | 8.4% | -3.0% | 0.477 | 0.602 |
-| Static pre-outage model | E14 indicator | 1.864 | 7.9% | -2.6% | 0.432 | 0.332 |
-| Rolling 20-day retrain | Current median | -0.155 | -1.6% | -9.5% | 0.440 | 0.932 |
-| Rolling 20-day retrain | Drop E14 | -0.432 | -5.7% | -9.9% | 0.499 | 0.999 |
-| Rolling 20-day retrain | E14 indicator | -0.155 | -1.6% | -9.5% | 0.440 | 0.932 |
+| 静态中断前模型 | 当前中位数 | 1.864 | 7.9% | -2.6% | 0.432 | 0.332 |
+| 静态中断前模型 | 剔除 E14 | 1.647 | 8.4% | -3.0% | 0.477 | 0.602 |
+| 静态中断前模型 | E14 指示变量 | 1.864 | 7.9% | -2.6% | 0.432 | 0.332 |
+| 滚动 20 日重训练 | 当前中位数 | -0.155 | -1.6% | -9.5% | 0.440 | 0.932 |
+| 滚动 20 日重训练 | 剔除 E14 | -0.432 | -5.7% | -9.9% | 0.499 | 0.999 |
+| 滚动 20 日重训练 | E14 指示变量 | -0.155 | -1.6% | -9.5% | 0.440 | 0.932 |
 
-The rolling retrain windows average 6.25% E14-missing rows; the latest 800-row
-window is 13.9% missing. The static model is trained before the outage and sees
-no missing E14, which is why the indicator is constant there.
+滚动重训练窗口平均有 6.25% 的 E14 缺失行；最新的 800 行窗口缺失率为 13.9%。静态模型在中断前训练，从未见过缺失的 E14，因此其指示变量在该设置下为常量。
 
-Interpretation:
+解读：
 
-- Dropping E14 is worse in both settings, so median filling is preferable to
-  dropping the feature in this sample.
-- The indicator has **zero XGBoost importance** and produces identical
-  allocations; there is no evidence that a missing indicator helps. Do not add
-  it to production yet.
-- The static model scores 1.864 while the rolling-retrain model scores -0.155.
-  This difference is confounded by market regime, retraining and the
-  post-competition period; it is **not** a causal E14 effect. The honest
-  statement is that the outage is a monitoring risk, not a measured cause of the
-  Phase 3 underperformance.
-- These are proxy scores (`fwd = target_metric`, `rf = 0`), not official
-  leaderboard scores. A controlled live A/B or a longer realized window is
-  required before changing the production feature set.
+- 在两种设置下剔除 E14 都更差，因此在本样本中，中位数填充优于剔除该特征。
+- 该指示变量的 **XGBoost 重要性为零**，且产生的配置完全相同；没有证据表明缺失指示变量有帮助。暂不要将其加入生产。
+- 静态模型评分为 1.864，而滚动重训练模型为 -0.155。该差异混杂了市场状态、重训练以及竞赛后时期的影响；它**不是** E14 的因果效应。诚实的表述是：该中断属于监控风险，而不是第 3 阶段表现不佳的可测原因。
+- 这些是代理评分（`fwd = target_metric`、`rf = 0`），并非官方排行榜评分。在改变生产特征集之前，需要受控的实盘 A/B 测试或更长的已实现窗口。
 
-## Verdict
+## 结论
 
-The deployment-faithful replay **does not support entering Deep Learning on the
-strength of the GBDT signal**. Daily retraining on the last 800 rows produces a
-worse six-fold result than the existing Online protocol and remains below Buy &
-Hold, Constant 1.25 and Vol-only. The Phase 2 conclusion is reinforced: the
-model's apparent value is not robust to the exact deployment path, and no
-reliable incremental value has been demonstrated.
+部署一致性重放**不支持基于 GBDT 信号进入深度学习（Deep Learning）**。在最近 800 行上每日重训练得到的六折结果，比现有 Online 协议更差，且仍低于 Buy & Hold、Constant 1.25 与 Vol-only。第 2 阶段的结论得到强化：模型的表面价值对确切的部署路径并不稳健，且尚未证明存在可靠的增量价值。
 
-Before any DL work, the higher-value next step is to stabilize the feature /
-allocation path and test whether a fixed-feature rolling retrain (the Online
-protocol) is the better deployment compromise. E14 should stay median-filled,
-with missing-share monitoring and no indicator until a controlled test shows a
-benefit.
+在开展任何 DL 工作之前，价值更高的下一步是稳定特征/配置路径，并检验固定特征的滚动重训练（即 Online 协议）是否是更好的部署折中方案。E14 应继续采用中位数填充，配合缺失占比监控，且在受控测试证明有收益之前不加指示变量。
 
-## Remaining issues
+## 遗留问题
 
-- The E14 stress window is post-competition and proxy-scored; it cannot be
-  compared to the six-fold official scores.
-- Daily retrain has no W&B run; only local manifest/artifacts.
-- The daily-versus-Online gap is not yet decomposed into feature-median drift,
-  model-seed/optimizer effects and allocation path dependence.
-- Buy & Hold / Constant 1.25 have no per-day trading cost; their turnover is a
-  diagnostic and not a cost-matched comparison.
-- The VPS deployment and three smoke tests in `deploy/README.md` are still
-  unverified on the server.
-- The dashboard is not implemented.
+- E14 压力测试窗口处于竞赛之后且使用代理评分，无法与六折官方评分比较。
+- 每日重训练没有 W&B 运行记录，仅有本地 manifest/产物。
+- 每日重训练与 Online 的差距尚未分解为特征中位数漂移、模型随机种子/优化器效应以及配置路径依赖。
+- Buy & Hold / Constant 1.25 没有逐日交易成本；其换手率仅为诊断指标，而非成本对齐的比较。
+- `deploy/README.md` 中的 VPS 部署与三项冒烟测试仍未在服务器上验证。
+- 仪表盘尚未实现。
 
+## 产物
 
-## Artifacts
-
-- `scripts/run_daily_retrain.py`: causal daily-retrain six-fold OOF.
-- `scripts/compare_deployment_modes.py`: unified comparison and plots.
-- `scripts/run_e14_stress.py`: post-competition E14 feature-treatment test.
-- `scripts/plot_e14_comparison.py`: combined static-vs-rolling chart.
-- `models/<run>/oof_predictions.csv`, `cv_summary.json`: daily-retrain output.
-- `reports/deployment_eval/summary.csv`, `fold_metrics.csv`,
-  `manifest.json`, `plots/01..06`: unified comparison tables and figures.
-- `reports/deployment_eval/e14_static/` and `e14_rolling20/`: E14 stress
-  tables, importance and per-setting charts; the combined chart is
-  `reports/deployment_eval/e14_static_vs_rolling.png`.
+- `scripts/run_daily_retrain.py`：因果式每日重训练六折 OOF。
+- `scripts/compare_deployment_modes.py`：统一对比与图表。
+- `scripts/run_e14_stress.py`：竞赛后 E14 特征处理测试。
+- `scripts/plot_e14_comparison.py`：静态与滚动对比的合并图表。
+- `models/<run>/oof_predictions.csv`、`cv_summary.json`：每日重训练输出。
+- `reports/deployment_eval/summary.csv`、`fold_metrics.csv`、`manifest.json`、`plots/01..06`：统一对比表格与图。
+- `reports/deployment_eval/e14_static/` 与 `e14_rolling20/`：E14 压力测试表格、重要性及各设置图表；合并图表为 `reports/deployment_eval/e14_static_vs_rolling.png`。

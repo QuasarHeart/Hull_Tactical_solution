@@ -1,211 +1,143 @@
-# Research Decisions — GBDT Validation
+# 研究决策 — 梯度提升决策树（Gradient Boosting Decision Tree，GBDT）验证
 
-日期：2026-11-21  
-范围：在进入 Deep Learning 之前，验证现有 GBDT 策略相对简单基准的增量价值。  
-约束：只复用已保存的 6 折 OOF；不重新训练、不调参、不修改正式预测文件。
+日期：2026-11-21
 
-## Decision index
+范围：在进入深度学习（Deep Learning，DL）之前，验证现有 GBDT 策略相对简单基准的增量价值。
 
-| ID | Decision | Status |
+约束：只复用已保存的 6 折的折外（out-of-fold，OOF）预测；不重新训练、不调参、不修改正式预测文件。
+
+## 决策索引
+
+| 编号 | 决策 | 状态 |
 | --- | --- | --- |
-| D1 | 暂停 Deep Learning，先建立可证伪的 GBDT 基线 | active (DL still not started) |
-| D2 | 评估只读已实现 OOF，不反向调整模型 | active |
-| D3 | Block length 主口径 20，报告敏感性 | active |
-| D4 | Fold-stratified paired block bootstrap | active |
-| D5 | Exposure baseline 必须因果 | active |
-| D6 | 现金/不可验证情形统一记 0 | active |
-| D7 | 结论标签 directional / inconclusive | active |
-| D8 | 六折阶段不进入 DL | active at that gate |
-| D9 | Deployment-faithful daily replay 是验收口径 | active |
-| D10 | E14 继续 median fill，暂不加 indicator | active |
-| D11 | Phase 3：严格部署没有复现 Online 优势 | active |
-| D12 | Phase 4：2×2 归因，dynamic builder 为描述性负向 | active |
-| D13 | Phase 4 decision gate：停止 further GBDT optimization | active |
-| D14 | Phase 5：官方窗口分数可复现，但 signal 证据弱 | active |
-| D15 | Phase 6：HAC/Holm 后无稳健 alpha，holdout 不选参 | active |
-| D16 | Phase 7：冻结 GBDT、发布报告与审计材料 | active |
-| D17 | Phase 8：feature-level RankIC 只做诊断，不选特征、不改模型 | active |
+| D1 | 暂停深度学习，先建立可证伪的 GBDT 基线 | 生效（深度学习尚未启动） |
+| D2 | 评估只读取已实现的 OOF，不反向调整模型 | 生效 |
+| D3 | 分块长度（block length）主口径 20，报告敏感性 | 生效 |
+| D4 | 按折分层的配对分块自助法（fold-stratified paired block bootstrap） | 生效 |
+| D5 | 暴露基准（exposure baseline）必须具备因果性 | 生效 |
+| D6 | 现金/不可验证情形统一记 0 | 生效 |
+| D7 | 结论标签为方向性（directional）/不确定（inconclusive） | 生效 |
+| D8 | 六折阶段不进入深度学习 | 在该关口生效 |
+| D9 | 忠实部署的逐日回放（deployment-faithful daily replay）是验收口径 | 生效 |
+| D10 | E14 继续中位数填充（median fill），暂不加入指示变量 | 生效 |
+| D11 | 阶段 3：严格部署未复现在线（Online）配置的优势 | 生效 |
+| D12 | 阶段 4：2×2 归因，动态构建器（dynamic builder）为描述性负向 | 生效 |
+| D13 | 阶段 4 决策关口：停止进一步的 GBDT 优化 | 生效 |
+| D14 | 阶段 5：137 日研究扩展窗口的分数可复现，但信号证据弱 | 生效 |
+| D15 | 阶段 6：HAC/Holm 校正后无稳健超额收益（alpha），留出集（holdout）不选参 | 生效 |
+| D16 | 阶段 7：冻结 GBDT，发布报告与审计材料 | 生效 |
+| D17 | 阶段 8：特征层面秩相关信息系数（RankIC）仅作诊断，不选特征、不改模型 | 生效 |
 
-## Decision log
+## 决策记录
 
-### D1. 暂停 Deep Learning 实现
+### D1. 暂停深度学习实现
 
-在 GBDT 的增量价值没有通过统计门槛之前，不启动 DL 模型实现。理由：如果当前收益主要来自
-exposure/volatility scaling，而不是预测信号，换一个序列模型不会自动产生增量价值；先建立可
-证伪的 GBDT 基线更便宜。
+在 GBDT 的增量价值未通过统计门槛之前，不启动深度学习模型实现。理由：如果当前收益主要来自暴露/波动率缩放（exposure/volatility scaling），而不是预测信号，那么换用序列模型不会自动产生增量价值；先建立可证伪的 GBDT 基线成本更低。
 
 ### D2. 评估只使用已实现的 OOF，不反向调整模型
 
-Temporal nulls、bootstrap、exposure baselines、IC、quantile 和 attribution 都只读取
-`oof_predictions.csv` 与已实现的 `forward_returns/risk_free_rate`。没有使用 OOF 结果重新训练
-或选择模型；本阶段的输出不能反向修改正式预测。
+时间置换零假设（temporal nulls）、自助法（bootstrap）、暴露基准、信息系数（Information Coefficient，IC）、分位数（quantile）和归因（attribution）均只读取 `oof_predictions.csv` 与已实现的 `forward_returns/risk_free_rate`。未使用 OOF 结果重新训练或选择模型；本阶段的输出不得反向修改正式预测。
 
-### D3. Block length 主口径 20，敏感性 5/10/20/40/60
+### D3. 分块长度主口径 20，敏感性 5/10/20/40/60
 
-20 个交易日约等于一个交易月，保留短中期自相关；同时报告 5/10/40/60 的敏感性。
-Block permutation 和 circular shift 都只改变预测与日期的对齐，保留 `vol`、`multiplier`、
-smoothing 和成本规则。主检验不预设某个 block length 最好；如果不同 L 下结论翻转，标记为
-inconclusive。
+20 个交易日约等于一个交易月，可保留短中期自相关；同时报告 5/10/40/60 的敏感性。分块置换（block permutation）与循环平移（circular shift）都只改变预测与日期的对齐关系，保留 `vol`、`multiplier`、平滑（smoothing）和成本规则。主检验不预设某个分块长度最优；如果不同 L 下结论发生翻转，则标记为不确定。
 
-### D4. Paired comparison 使用 fold-stratified moving-block bootstrap
+### D4. 配对比较使用按折分层的移动分块自助法
 
-每个 fold 内按 block 重采样日期，同一组索引同时用于 Online 和 baseline；不跨 fold 拼接
-block。报告两个层级：
+在每个折内按分块重采样日期，同一组索引同时用于在线配置和基准；不跨折拼接分块。报告两个层级：
 
-- `concatenated`：把 6 个 fold 的重采样结果按顺序拼成一条 OOF 曲线；
-- `fold_mean`：每个 fold 单独算 score，再平均。
+- `concatenated`（拼接）：将 6 个折的重采样结果按顺序拼接成一条 OOF 曲线；
+- `fold_mean`（折均值）：每个折单独计算分数，再取平均。
 
-Bootstrap 只用于不确定性，不用于模型选择；主比较 3 个，exposure 比较 2 个，使用 Holm
-校正。fold-level 的逐折结果不做事后多重检验校正，只作为 exploratory evidence。
+自助法仅用于量化不确定性，不用于模型选择；主比较 3 个，暴露比较 2 个，使用 Holm 校正。折层面的逐折结果不做事后多重检验校正，仅作为探索性证据（exploratory evidence）。
 
-### D5. Exposure-matched baselines 必须因果
+### D5. 暴露匹配基准必须因果
 
-严格 matched baseline 用 `lag1`：第 t 天使用第 t-1 天的 Online allocation，第一天为 0。
-它几乎完全保留 Online 的仓位分布（mean 0.651 vs 0.652，median 0.383 vs 0.383），但不是
-当前预测。另加 `expanding_mean`（只用过去 allocation 的均值）和 `past_bootstrap`（从过去
-allocation 的经验分布中抽样）作为低换手/分布对照。
+严格匹配基准使用 `lag1`：第 t 天使用第 t-1 天的在线仓位分配，第一天为 0。它几乎完全保留在线配置的仓位分配分布（均值 0.651 对 0.652，中位数 0.383 对 0.383），但不是当前预测。另加入 `expanding_mean`（仅使用过去仓位分配的均值）和 `past_bootstrap`（从过去仓位分配的经验分布中抽样）作为低换手/分布对照。
 
-`vol_matched` 只作为额外诊断：它尝试用过去 exposure 和 vol ratio 匹配，但实际平均仓位
-0.890 高于 Online 的 0.652，**不应当称作严格 exposure-matched**。
+`vol_matched` 仅作为额外诊断：它尝试用过去的暴露和波动率比率（vol ratio）进行匹配，但实际平均仓位 0.890 高于在线配置的 0.652，**不应当称作严格的暴露匹配**。
 
 ### D6. 现金和不可验证情形的约定
 
-全零仓位的官方 score 是 0/0；所有现金对照统一记为 `score=sharpe=0`，并在表格中标注 `cash`。
-预测 ablation 的训练均值为负时选择空仓，不强行做多。
+全零仓位的官方分数为 0/0；所有现金对照统一记为 `score=sharpe=0`，并在表格中标注 `cash`。预测消融（ablation）的训练均值为负时选择空仓，不强行做多。
 
 ### D7. 结论标签
 
-- `directional`：bootstrap CI 不跨 0，且方向在多数 fold 一致；仍只能算弱证据。
-- `inconclusive`：CI 跨 0、fold 方向混杂、样本太小或口径不唯一。
+- `directional`：自助法置信区间不跨 0，且方向在多数折中一致；仍只能算弱证据。
+- `inconclusive`：置信区间跨 0、折间方向混杂、样本太小或口径不唯一。
 - 不做“没有显著差异 = 没有差异”的表述；正确的说法是“没有检出可靠差异”。
 
 ### D8. 阶段结论
 
-截至本阶段：**没有足够证据支持进入 Deep Learning**。GBDT Online 与 Buy & Hold、Constant
-1.25、Vol-only 的平均差异在 paired bootstrap 下均不显著；在线模型的预测 IC 也不显著。
-详见 `docs/gbdt_validation.md`。
+截至本阶段：**没有足够证据支持进入深度学习**。GBDT 在线配置与买入持有（Buy & Hold）、常数 1.25（Constant 1.25）、仅波动率（Vol-only）的平均差异在配对自助法下均不显著；在线模型的预测 IC 也不显著。详见 `docs/gbdt_validation.md`。
 
-### D9. Deployment-faithful 是最终验收口径
+### D9. 忠实部署是最终验收口径
 
-Phase 3 增加了逐日重训的回放：每个测试日 `t` 只用 `date_id < t` 且 target 已实现的最近
-800 行，重新拟合 feature builder（缺失率、median、派生特征）和三个 GBDT 模型，再预测 `t`。
-fold 开始时重置仓位状态；`t` 的 target 只在预测之后用于更新 policy。任何 `train_end >= t`
-都视为泄漏并直接失败。这个口径比固定 builder 的 Online 更接近实际部署。
+阶段 3 增加了逐日重训回放：每个测试日 `t` 只使用 `date_id < t` 且目标已实现的最近 800 行，重新拟合特征构建器（feature builder，包括缺失率、中位数和派生特征）和三个 GBDT 模型，再对 `t` 进行预测。每折开始时重置仓位状态；`t` 的目标值仅在预测之后用于更新仓位策略（policy）。任何 `train_end >= t` 均视为泄漏（leakage）并直接判定失败。该口径比固定构建器的在线配置更接近实际部署。
 
-### D10. E14 outage 与 OOF 的关系
+### D10. E14 中断与 OOF 的关系
 
-E14 的 111 行缺失从 2026-06-16 开始，而六折最后一折的测试日在 2025-12-03；六折 OOF
-与 outage 的重叠为 0。因此 Phase 2/3 的六折结果不能归因于 E14 缺失。对 post-competition
-live window 的检查是探索性的，且只能使用 proxy score（`fwd=target_metric`, `rf=0`）：
+E14 的 111 行缺失自 2026-06-16 开始，而六折中最后一折的测试日为 2025-12-03；六折 OOF 与中断（outage）的重叠为 0。因此阶段 2/3 的六折结果不能归因于 E14 缺失。对赛后实盘窗口（post-competition live window）的检查属于探索性分析，且只能使用代理分数（proxy score；`fwd=target_metric`, `rf=0`）：
 
-- 删除 E14 在两个 setting 下都更差；中位数填充不劣于删除。
-- `E14_MISSING` 的 XGBoost importance 为 0，预测路径与中位数填充完全一致；当前没有证据
-  支持加入 missing indicator。
-- static 与 rolling-retrain 的巨大差异混入了市场 regime、重训和样本期变化，不能当作
-  E14 的因果效应。
+- 在两种设置（setting）下，删除 E14 都更差；中位数填充不劣于删除。
+- `E14_MISSING` 的 XGBoost 重要性（importance）为 0，预测路径与中位数填充完全一致；当前没有证据支持加入缺失指示变量。
+- 静态（static）与滚动重训（rolling-retrain）之间的巨大差异混入了市场状态（regime）、重训和样本期变化，不能当作 E14 的因果效应。
 
-生产决策：继续 median fill，记录缺失率；暂不加入 indicator，等有对照 A/B 或更长已实现
-窗口再决定。
+生产决策：继续采用中位数填充，记录缺失率；暂不加入指示变量，待有对照 A/B 测试或更长的已实现窗口后再决定。
 
-### D11. Phase 3 结论
+### D11. 阶段 3 结论
 
-Daily retrain 六折官方分数均值 0.871，低于 Online 1.253，也低于 Buy & Hold 1.498、
-Constant 1.25 1.411、Vol-only 1.267；continuous score 0.808，同样低于 Online 和简单基准。
-更严格的部署口径**没有复现** Online 的优势，反而暴露了 feature builder 逐日重建带来的
-路径不稳定。因此不进入 Deep Learning；下一步优先做固定 feature 与动态 feature 的对照，
-并先稳定仓位路径。详见 `docs/deployment_eval.md`。
+每日重训（Daily Retrain）六折官方分数均值 0.871，低于在线的 1.253，也低于买入持有的 1.498、常数 1.25 的 1.411、仅波动率的 1.267；连续分数（continuous score）0.808，同样低于在线配置和简单基准。更严格的部署口径**没有复现**在线的优势，反而暴露了特征构建器逐日重建带来的路径不稳定。因此不进入深度学习；下一步优先做固定特征与动态特征的对照，并先稳定仓位路径。详见 `docs/deployment_eval.md`。
 
-### D12. Phase 4 2×2 factorial 归因
+### D12. 阶段 4 的 2×2 因子设计归因
 
-Phase 4 用同一批六折、同一套 allocation 和 hyperparameters 构造 2×2：
+阶段 4 使用同一批六折、同一套仓位分配和超参数（hyperparameters）构造 2×2 因子设计（factorial design）：
 
-- A = fixed builder + fixed model（existing Offline）
-- B = fixed builder + rolling model（existing Online）
-- C = dynamic builder + fixed model（new Phase 4C）
-- D = dynamic builder + rolling model（existing Daily Retrain）
+- A = 固定构建器 + 固定模型（现有离线配置，Offline）
+- B = 固定构建器 + 滚动模型（现有在线配置，Online）
+- C = 动态构建器 + 固定模型（新增阶段 4C）
+- D = 动态构建器 + 滚动模型（现有每日重训，Daily Retrain）
 
-C 的 fixed model 保持 fold-start 的输入 schema；dynamic builder 缺失的 fixed 列用 fold-start
-median 填充（实际为 0 个），额外列忽略并记录。所有 OOF 都复制到
-`reports/phase4_attribution/oof/` 并记录 SHA-256，不修改正式预测。
+C 的固定模型保持折起始（fold-start）的输入模式（schema）；动态构建器缺失的固定列用折起始中位数填充（实际为 0 个），额外列忽略并记录。所有 OOF 均复制到 `reports/phase4_attribution/oof/` 并记录 SHA-256，不修改正式预测。
 
-结果：A 0.833，B 1.253，C 0.524，D 0.871（fold-mean official score）。Point estimate
-显示 dynamic builder 是负向主效应（fixed-builder mean 1.043 vs dynamic 0.697），rolling
-model 是正向主效应（0.678 vs 1.062），interaction -0.072；但四个直接 contrast 的
-paired block-bootstrap 95% CI 全部跨 0，Holm 后全部不显著。因此只能把机制写成
-descriptive，不能声称已建立因果关系。
+结果：A 0.833，B 1.253，C 0.524，D 0.871（折均值官方分数）。点估计（point estimate）显示动态构建器为负向主效应（固定构建器均值 1.043 对动态构建器 0.697），滚动模型为正向主效应（0.678 对 1.062），交互项（interaction）为 -0.072；但四个直接对比（contrast）的配对分块自助法 95% 置信区间（confidence interval，CI）全部跨 0，Holm 校正后全部不显著。因此只能将机制表述为描述性（descriptive），不能声称已建立因果关系。
 
-### D13. Phase 4 decision gate
+### D13. 阶段 4 决策关口
 
-没有任何 configuration 对 Buy & Hold、Constant 1.25、Vol-only 形成 robust incremental
-value；B 的点估计最高，但 B 就是 existing Online，且所有 paired CI 跨 0。继续调 GBDT
-不会解决这个问题，**停止 further GBDT optimization**，本阶段不实现 DL。
+没有任何配置（configuration）对买入持有、常数 1.25、仅波动率形成稳健的增量价值（robust incremental value）；B 的点估计最高，但 B 就是现有的在线配置，且所有配对置信区间均跨 0。继续调整 GBDT 不会解决这个问题，**停止进一步的 GBDT 优化**，本阶段不实现深度学习。
 
-可部署性判断：B（冻结 feature builder + rolling model）是唯一在点估计上接近 Online 的
-可部署形式；当前 D（每日重建 builder + 每日重训）没有复现它。若要保留 GBDT，下一步是
-实现 fixed-builder rolling 的 live job，而不是继续增加模型复杂度；但在没有稳健增量证据
-前不建议投入。
+可部署性判断：B（冻结特征构建器 + 滚动模型）是唯一在点估计上接近在线配置的可部署形式；当前的 D（每日重建构建器 + 每日重训）未复现该表现。若要保留 GBDT，下一步是实现固定构建器滚动（fixed-builder rolling）的实盘任务（live job），而不是继续增加模型复杂度；但在没有稳健增量证据之前不建议投入。
 
-Common evaluation interface 已提供：`paired_block_bootstrap`（fold-aware，primary
-fold-mean，secondary 合成 concatenated）、`summarize_turnover_adjusted`、
-`holm_adjust`，后续 GRU/TCN 复用同一六折、labels 和 allocation 评估。详见
-`docs/feature_builder_attribution.md`。
+统一评估接口（common evaluation interface）已提供：`paired_block_bootstrap`（按折感知，主口径为折均值，次口径为拼接）、`summarize_turnover_adjusted`、`holm_adjust`，后续 GRU/TCN 复用同一六折、标签和仓位分配进行评估。详见 `docs/feature_builder_attribution.md`。
 
-### D14. Phase 5 competition-window attribution
+### D14. 阶段 5：137 日研究扩展窗口归因
 
-Phase 5 在官方 137 天窗口（2025-12-16～2026-07-06）上做 signal/allocation 消融，
-不重新训练模型，只复用已保存的 raw signal、vol、multiplier 和 allocation。
-原始路径官方脚本复算 **2.192119**；`simulate_positions` 与原 allocation 最大差 0。
+阶段 5 在 137 日研究扩展窗口（2025-12-16～2026-07-06）上进行信号/仓位消融（signal/allocation ablation），不重新训练模型，只复用已保存的原始信号（raw signal）、`vol`、乘数（multiplier）和仓位分配。原始路径经官方脚本复算为 **2.192119**；`simulate_positions` 与原仓位分配的最大差为 0。
 
 关键结果：
 
-- 反转 raw signal：0.055；方向重要，但 long-only 下不是对称空头。
-- `multiplier=1`：0.556，mean allocation 0.015；高分依赖 multiplier 提供的
-  exposure，而不是 raw signal 单独产生仓位。
-- fixed 600 / fixed 400：2.178 / 2.181；600/400 切换本身不是主要来源。
-- 去掉 smoothing：2.014，turnover 0.530→0.733，MDD -4.01%→-4.91%；平滑改善
-  风险调整收益。
-- IID shuffle p=0.0525，block L=20 p=0.0519；实际 2.192 位于 null 尾部但
-  **未达到 5% 显著**。prediction bins 不单调，rank IC 0.114；signal timing
-  的增量仍是弱证据。
-- 月度优势集中在 2026-01 和 2026-04；2026-02 为负。vol regime 中 high-vol
-  贡献 9.23% 绝对收益，low-vol 分数最高（4.79），mid-vol 基本走平。
+- 反转原始信号：0.055；方向重要，但在仅做多（long-only）约束下并非对称空头。
+- `multiplier=1`：0.556，平均仓位分配 0.015；高分依赖乘数提供的暴露，而不是原始信号单独产生的仓位。
+- 固定 600 / 固定 400：2.178 / 2.181；600/400 之间的切换本身不是主要来源。
+- 去掉平滑：2.014，换手率（turnover）0.530→0.733，最大回撤（Maximum Drawdown，MDD）-4.01%→-4.91%；平滑改善了风险调整收益。
+- 独立同分布打乱（IID shuffle）p=0.0525，分块 L=20 时 p=0.0519；实际值 2.192 位于零分布尾部，但**未达到 5% 显著水平**。预测分箱（prediction bins）不单调，秩 IC 为 0.114；信号择时（signal timing）的增量仍是弱证据。
+- 月度优势集中在 2026-01 和 2026-04；2026-02 为负。波动率状态中，高波动贡献 9.23% 的绝对收益，低波动分数最高（4.79），中波动基本走平。
 
-结论：官方窗口的分数复现无误，但 score 对 multiplier/smoothing 很敏感；
-signal 方向有贡献，但统计上仍不够强。继续调 GBDT 不符合收益/复杂度权衡；本阶段
-不实现 DL。
+结论：研究扩展窗口的分数复现无误，但分数对乘数/平滑很敏感；信号方向有贡献，但统计上仍不够强。继续调整 GBDT 不符合收益与复杂度的权衡；本阶段不实现深度学习。
 
-### D15. Phase 6 signal robustness and independent validation
+### D15. 阶段 6 信号稳健性与独立验证
 
-Phase 6 在运行 2026-07-07 之后窗口之前，把 multiplier grid、regime 阈值、
-concentration 规则和 HAC/block-bootstrap 检验族冻结在
-`docs/phase6_preregistration.md` 与 `configs/gdbt/phase6.yaml`。独立窗口的
-Daily Retrain 95 天 score 1.382、Offline 2.711，简单基准为负；但 daily 的
-HAC 检验全部不显著，Offline 是描述性结果，不能反过来选模型。
+阶段 6 在运行 2026-07-07 之后的窗口之前，将乘数网格（multiplier grid）、状态阈值、集中度（concentration）规则以及异方差与自相关稳健（Heteroskedasticity-and-Autocorrelation-Consistent，HAC）/分块自助法检验族（test family）冻结在 `docs/phase6_preregistration.md` 与 `configs/gdbt/phase6.yaml`。独立窗口上，每日重训 95 天分数为 1.382，离线为 2.711，简单基准为负；但每日重训的 HAC 检验全部不显著，离线属于描述性结果，不能反过来用于选择模型。
 
-官方窗口的六检验经 Holm 后全部不显著：daily mean excess 的单侧 raw p=0.014，
-Holm p=0.085；vs Buy & Hold、Constant 1.25、Vol-only 的 HAC p 分别为
-0.371/0.486/0.136；Rank IC 0.114（bootstrap CI 跨 0）、Q5−Q1 0.00257
-（CI 跨 0）。低/中波动 IC 较高，但各仅 21 天、每 quintile 4–5 天；高波动
-95 天几乎无信号。1 月和 4 月的正贡献高度集中（前 3 个正贡献日占 62.1%/53.3%，
-前 5 个占 90.3%/74.2%），删除一个 5 日 block 可使 score 下降 0.653/0.382。
+研究扩展窗口的六项检验经 Holm 校正后全部不显著：每日平均超额收益（daily mean excess）的单侧原始 p=0.014，Holm p=0.085；相对买入持有、常数 1.25、仅波动率的 HAC p 分别为 0.371/0.486/0.136；秩 IC 为 0.114（自助法置信区间跨 0）、Q5−Q1 为 0.00257（置信区间跨 0）。低波动与中波动的 IC 较高，但各自仅 21 天、每个五分位（quintile）4–5 天；高波动的 95 天几乎无信号。1 月和 4 月的正贡献高度集中（前 3 个正贡献日分别占 62.1%/53.3%，前 5 个分别占 90.3%/74.2%），删除一个 5 日分块可使分数下降 0.653/0.382。
 
-因此：保留“positive point estimate + exposure-layer 贡献”的描述，不把它升级为
-robust alpha；不根据这个窗口选择 200 multiplier 或 Offline。GBDT 冻结为基线，
-下一步若进入 DL，复用同一评估接口和预注册流程。详见
-`docs/phase6_signal_robustness.md`。
+因此：保留“点估计为正 + 暴露层贡献”的描述，不将其升级为稳健超额收益；不根据该窗口选择 200 乘数或离线配置。GBDT 冻结为基线；下一步若进入深度学习，复用同一评估接口和预注册（pre-registration）流程。详见 `docs/phase6_signal_robustness.md`。
 
-### D16. Phase 7 final synthesis and release audit
+### D16. 阶段 7 最终综合与发布审计
 
-Phase 7 不再新增模型或调参，只把已有证据整理为可审计的最终报告：
-`docs/final_research_report.md`；实验索引进入 `docs/experiments.md`；决策历史
-在本文件；README 增加架构图、核心结果图和限制；`data/manifest.json` 记录数据
-哈希、行数、日期范围和 live/raw 的 gitignored 状态；测试覆盖扩展到 42 项。
+阶段 7 不再新增模型或调参，只将已有证据整理为可审计的最终报告：`docs/final_research_report.md`；实验索引进入 `docs/experiments.md`；决策历史保留在本文件；README 增加架构图、核心结果图和限制说明；`data/manifest.json` 记录数据哈希、行数、日期范围以及 live/raw 数据被 git 忽略（gitignored）的状态；测试覆盖扩展到 42 项。
 
-发布判断：**GBDT 保持冻结，不再根据单一窗口优化；DL 尚未启动**。最终报告的
-Limitations 必须明确列出：单一窗口收益集中、signal 统计证据有限、历史 OOF
-未证明稳定增量、独立窗口仅 95 天且 regime 不平衡、交易成本后的经济价值未充分
-证明、Offline 与 Daily 在不同时期排序不同。报告和 README 不使用“稳定 alpha”
-或“已证明优于基准”的表述。
+发布判断：**GBDT 保持冻结，不再根据单一窗口进行优化；深度学习尚未启动**。最终报告的限制（Limitations）章节必须明确列出：单一窗口收益集中、信号统计证据有限、历史 OOF 未证明存在稳定增量、独立窗口仅 95 天且状态不平衡、扣除交易成本后的经济价值未充分证明、离线与每日重训在不同时期的排序不同。报告和 README 不使用“稳定超额收益”或“已证明优于基准”的表述。
 
 复现入口：
 
@@ -216,60 +148,41 @@ python scripts/build_data_manifest.py
 pytest -q
 ```
 
-Phase 7 的 Git commit 按“Phase 6 研究 + Phase 7 文档/资产/审计”拆分；push 仍由
-用户决定，不自动执行。
+阶段 7 的 Git 提交按“阶段 6 研究 + 阶段 7 文档/资产/审计”拆分；推送（push）仍由用户决定，不自动执行。
 
-### D17. Phase 8 feature-level RankIC diagnosis
+### D17. 阶段 8 特征层面 RankIC 诊断
 
-Phase 8 只读六折 OOF 日期，重建 fold-specific point-in-time 特征，不训练模型、
-不修改 OOF、不选择特征。特征层级为 94 raw、5 derived、99 model-input union；
-2015–2025 各折的 model-input 集合是 97/98/98/99/99/99，`E7`、`V10` 在早期
-fold 不可用，保留为 missing 而不是静默删除。
+阶段 8 仅读取六折 OOF 的日期，重建按折特定的时点（point-in-time）特征，不训练模型、不修改 OOF、不选择特征。特征层级为 94 个原始特征、5 个派生特征、99 个模型输入并集；2015–2025 各折的模型输入集合分别为 97/98/98/99/99/99，`E7`、`V10` 在早期折中不可用，保留为缺失值而不是静默删除。
 
 主要结果：
 
-- 99 个 model-input 特征中，fold-mean 正值/负值方向和跨折稳定性可以描述，
-  但只有 **E19、M1、V7、V9、V13** 通过 BH q<=0.05；`V10` 在 model-input
-  表示 q=0.052，在 raw 表示 q=0.005，说明表示口径不稳。
-- `P2`/`P11` 的 fold-mean 很强但 pooled IC 很弱，说明不能只看单一总体
-  RankIC，也不能把符号一致直接当成可交易信号。
-- 高波动 regime 只有 292 天且集中在少数 fold；所有 high-vol 单元格都不足
-  四个 fold，标记 inconclusive；`E7`/`V10` 的 high-vol 单元格尤其薄。
-- D1/D2 完全重复；14 个特征对 |rho|>=0.90，形成 10 个 cluster；99 个输入
-  不是 99 个独立信号。
-- 本阶段没有发现需要改模型的新假设。决策：**保留全部特征，不重训，不调
-  multiplier/volatility/smoothing，不把 RankIC 当作独立增量预测价值**。
+- 99 个模型输入特征中，折均值的正负方向与跨折稳定性可以描述，但只有 **E19、M1、V7、V9、V13** 通过 Benjamini–Hochberg（BH）校正 q<=0.05；`V10` 在模型输入表示下 q=0.052，在原始表示下 q=0.005，说明表示口径不稳定。
+- `P2`/`P11` 的折均值很强但合并 IC（pooled IC）很弱，说明不能只看单一的总体秩 IC，也不能把符号一致直接当作可交易信号。
+- 高波动状态仅有 292 天且集中在少数折；所有高波动单元格覆盖均不足四个折，标记为不确定（inconclusive）；`E7`/`V10` 的高波动单元格尤其稀疏。
+- D1/D2 完全重复；14 个特征对的 |rho|>=0.90，形成 10 个特征簇（cluster）；99 个输入并不是 99 个独立信号。
+- 本阶段未发现需要修改模型的新假设。决策：**保留全部特征，不重训，不调整乘数/波动率/平滑，不把 RankIC 当作独立的增量预测价值**。
 
-详见 `docs/feature_rankic_analysis.md`，产物在
-`reports/feature_rankic_summary.csv`、`reports/feature_rankic_by_fold.csv`、
-`reports/feature_rankic_rolling.parquet`、`reports/feature_rankic_regime.csv`、
-`reports/feature_correlation_matrix.csv` 和 `reports/feature_rankic_figures/`。
+详见 `docs/feature_rankic_analysis.md`，产物在 `reports/feature_rankic_summary.csv`、`reports/feature_rankic_by_fold.csv`、`reports/feature_rankic_rolling.parquet`、`reports/feature_rankic_regime.csv`、`reports/feature_correlation_matrix.csv` 和 `reports/feature_rankic_figures/`。
 
-## Anti-leakage guardrails
+## 防泄漏护栏
 
-1. Phase 2/3 validation 不重新训练；Phase 4C 重新训练 C，但严格使用 `date_id < t` 的数据，
-   且没有用 OOF 结果调参或选择模型。
-2. Temporal nulls 只重排/平移已实现的测试期预测。
-3. Exposure baselines 只使用严格早于当天的 allocation。
-4. Regime 阈值来自训练窗口的 trailing volatility；测试期只做分类。
-5. Block bootstrap 只用于置信区间，不参与模型选择。
-6. 所有随机实验固定 seed，并保存配置和重复次数。
-7. Daily retrain 对每个测试日强制要求 `train_end < test_date_id`，并使用当时已实现的
-   target；失败即中止，不静默跳过。
-8. Phase 6 的 post-window 协议、multiplier grid、regime 阈值和检验族在读取
-   post-2026-07-06 结果前冻结；post-window 不参与任何参数选择。
+1. 阶段 2/3 的验证不重新训练；阶段 4C 重新训练 C，但严格使用 `date_id < t` 的数据，且未使用 OOF 结果调参或选择模型。
+2. 时间置换零假设仅重排或平移已实现的测试期预测。
+3. 暴露基准仅使用严格早于当天的仓位分配。
+4. 状态阈值来自训练窗口的滚动波动率（trailing volatility）；测试期只进行分类。
+5. 分块自助法仅用于置信区间，不参与模型选择。
+6. 所有随机实验固定随机种子（seed），并保存配置和重复次数。
+7. 每日重训对每个测试日强制要求 `train_end < test_date_id`，并使用当时已实现的目标值；失败即中止，不静默跳过。
+8. 阶段 6 的窗口后（post-window）协议、乘数网格、状态阈值和检验族在读取 post-2026-07-06 结果之前冻结；窗口后数据不参与任何参数选择。
 
-## Open decisions
+## 待定决策
 
-- 是否接受“平均 score 不显著优于 Buy & Hold”作为停止 DL 的依据？
+- 是否接受“平均分数不显著优于买入持有”作为停止深度学习的依据？
 - 是否先重做仓位/暴露层，再重新跑本报告的全部检验？
-- 是否把评估扩展到更多 rolling folds，以缩小 CI？
-- 是否将 turnover cost 作为正式评分的附加约束？
-- E14 暂定 median fill、无 indicator；需要更长已实现窗口或 live A/B 再决定。
-- Daily retrain 与 Online 的差距需分解为 feature median drift、模型重训随机性和仓位路径
-  依赖；在解释前不要把它归因为单一原因。
-- Phase 6：是否接受“point estimate 正但 Holm 后不显著”为停止 GBDT 调参的依据？
-- Phase 6：若进入 DL，是否把 95 天 post-window 保留为最终的 locked test，而不是
-  再做探索性分析？
-- Phase 6：multiplier 若要简化，应先预注册 fixed 值并用新的独立窗口确认；不能直接
-  采用本窗口的 200。
+- 是否将评估扩展到更多滚动折，以缩小置信区间？
+- 是否将换手成本（turnover cost）作为正式评分的附加约束？
+- E14 暂定中位数填充、无指示变量；需要更长的已实现窗口或实盘 A/B 测试再决定。
+- 每日重训与在线的差距需分解为特征中位数漂移、模型重训随机性和仓位路径依赖；在解释前不要把它归因为单一原因。
+- 阶段 6：是否接受“点估计为正但 Holm 校正后不显著”作为停止 GBDT 调参的依据？
+- 阶段 6：若进入深度学习，是否把 95 天窗口后数据保留为最终的锁定测试（locked test），而不是再做探索性分析？
+- 阶段 6：乘数若要简化，应先预注册固定值并用新的独立窗口确认；不能直接采用本窗口的 200。

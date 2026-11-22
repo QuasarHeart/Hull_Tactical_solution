@@ -95,6 +95,38 @@ def load_oof(path: Path) -> pl.DataFrame:
     return frame
 
 
+def resolve_oof_path(
+    explicit: str | Path | None,
+    configured: str | Path | None,
+    models_dir: str | Path = "models",
+) -> Path:
+    """Resolve --oof, then config, then the newest offline CV artifact."""
+    if explicit is not None:
+        path = Path(explicit)
+        if not path.is_file():
+            raise FileNotFoundError(f"--oof path does not exist: {path}")
+        return path
+
+    if configured:
+        path = Path(configured)
+        if path.is_file():
+            return path
+
+    pattern = "*_gdbt_notebook_cv_offline_*/oof_predictions.csv"
+    candidates = sorted(
+        (path for path in Path(models_dir).glob(pattern) if path.is_file()),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    if candidates:
+        return candidates[0]
+
+    raise FileNotFoundError(
+        "No OOF predictions found. Run `python scripts/run_cv.py --offline "
+        "--no-wandb` first, or pass `--oof PATH`."
+    )
+
+
 def build_folds(panel: pl.DataFrame, config: Config, phase8: dict[str, Any]) -> list[Any]:
     date_map = load_date_map(config.paths.date_map_csv)
     by_year = date_ids_for_years(date_map, phase8.get("test_years", []))
@@ -941,7 +973,11 @@ def main() -> None:
     model_config = GBDTConfig.from_dict(config.section("model"))
     phase8 = config.section("phase8")
     seed = int(args.seed if args.seed is not None else phase8.get("seed", 42))
-    oof_path = Path(args.oof or phase8["oof_path"])
+    oof_path = resolve_oof_path(
+        args.oof,
+        phase8.get("oof_path"),
+        models_dir=config.paths.models_dir,
+    )
     output = Path(args.output_dir)
     figures = output / "feature_rankic_figures"
     figures.mkdir(parents=True, exist_ok=True)

@@ -1,7 +1,9 @@
 _base_: phase6.yaml
 run_name: gdbt_phase8_feature_rankic
 phase8:
-  oof_path: models/20261121_170606_gdbt_notebook_cv_offline_ae2a75/oof_predictions.csv
+  # Optional explicit OOF path. If null, the script auto-discovers the newest
+  # models/*_gdbt_notebook_cv_offline_*/oof_predictions.csv. --oof overrides both.
+  oof_path: null
   test_years: [2015, 2017, 2019, 2021, 2023, 2025]
   train_window: 800
   gap: 1
