@@ -24,6 +24,7 @@
 | D14 | Phase 5：官方窗口分数可复现，但 signal 证据弱 | active |
 | D15 | Phase 6：HAC/Holm 后无稳健 alpha，holdout 不选参 | active |
 | D16 | Phase 7：冻结 GBDT、发布报告与审计材料 | active |
+| D17 | Phase 8：feature-level RankIC 只做诊断，不选特征、不改模型 | active |
 
 ## Decision log
 
@@ -217,6 +218,32 @@ pytest -q
 
 Phase 7 的 Git commit 按“Phase 6 研究 + Phase 7 文档/资产/审计”拆分；push 仍由
 用户决定，不自动执行。
+
+### D17. Phase 8 feature-level RankIC diagnosis
+
+Phase 8 只读六折 OOF 日期，重建 fold-specific point-in-time 特征，不训练模型、
+不修改 OOF、不选择特征。特征层级为 94 raw、5 derived、99 model-input union；
+2015–2025 各折的 model-input 集合是 97/98/98/99/99/99，`E7`、`V10` 在早期
+fold 不可用，保留为 missing 而不是静默删除。
+
+主要结果：
+
+- 99 个 model-input 特征中，fold-mean 正值/负值方向和跨折稳定性可以描述，
+  但只有 **E19、M1、V7、V9、V13** 通过 BH q<=0.05；`V10` 在 model-input
+  表示 q=0.052，在 raw 表示 q=0.005，说明表示口径不稳。
+- `P2`/`P11` 的 fold-mean 很强但 pooled IC 很弱，说明不能只看单一总体
+  RankIC，也不能把符号一致直接当成可交易信号。
+- 高波动 regime 只有 292 天且集中在少数 fold；所有 high-vol 单元格都不足
+  四个 fold，标记 inconclusive；`E7`/`V10` 的 high-vol 单元格尤其薄。
+- D1/D2 完全重复；14 个特征对 |rho|>=0.90，形成 10 个 cluster；99 个输入
+  不是 99 个独立信号。
+- 本阶段没有发现需要改模型的新假设。决策：**保留全部特征，不重训，不调
+  multiplier/volatility/smoothing，不把 RankIC 当作独立增量预测价值**。
+
+详见 `docs/feature_rankic_analysis.md`，产物在
+`reports/feature_rankic_summary.csv`、`reports/feature_rankic_by_fold.csv`、
+`reports/feature_rankic_rolling.parquet`、`reports/feature_rankic_regime.csv`、
+`reports/feature_correlation_matrix.csv` 和 `reports/feature_rankic_figures/`。
 
 ## Anti-leakage guardrails
 

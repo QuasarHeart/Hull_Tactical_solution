@@ -365,7 +365,7 @@ Daily 的 HAC 结果全部不显著；Offline 2.711 也没有被预注册为 pri
 ```bash
 cd /home/yys/Hull_Tactical_solution
 /home/yys/miniconda3/envs/dlwpt/bin/python -m pytest -q --disable-warnings
-# 42 passed
+# 46 passed
 ```
 
 覆盖：metrics、panel/date_map、feature builder、no-leakage、notebook parity、
@@ -413,7 +413,8 @@ push 由用户决定，不自动执行。
 | `docs/live_window_20251216_20260706.md` | 137 天窗口与扩展说明 |
 | `docs/phase6_preregistration.md` | locked-window 预注册 |
 | `docs/phase6_signal_robustness.md` | Phase 6 signal/regime/multiplier/concentration |
-| `docs/research_decisions.md` | D1–D16 决策历史 |
+| `docs/research_decisions.md` | D1–D17 决策历史 |
+| `docs/feature_rankic_analysis.md` | Phase 8 feature-level RankIC diagnosis |
 | `docs/data_manifest.md`, `data/manifest.json` | 数据/版本审计 |
 | `docs/assets/architecture.png` | 系统架构图 |
 | `docs/assets/core_results.png` | 核心结果图 |
@@ -429,3 +430,24 @@ push 由用户决定，不自动执行。
 在这个标准下，Phase 6/7 的结论是 **inconclusive but auditable**：保留模型作为
 基线，停止用同一窗口寻找更好看的数字；如果未来进入 DL，必须先解决样本、
 成本和统计功效问题，而不是换一个更复杂的模型。
+
+## 10. Phase 8 addendum: feature-level RankIC
+
+Phase 8 adds a separate diagnostic over the same 1,488 six-fold OOF dates:
+94 raw + 5 derived features, reconstructed fold-by-fold with the point-in-time
+feature builder. It does not retrain the model or select features.
+
+Key findings:
+
+- 99 model-input features; five positive features pass BH FDR (E19, M1, V7,
+  V9, V13); V10 is borderline in model-input form (q=0.052) but significant in
+  raw form (q=0.005).
+- P2 and P11 have strong fold-mean signs but weak pooled IC; this is a warning
+  against using a single pooled RankIC.
+- High-vol regime has only 292 test days, concentrated in three usable folds;
+  all high-vol cells are marked inconclusive.
+- D1/D2 are exact duplicates; 14 feature pairs have |rho|>=0.90; 99 inputs are
+  not 99 independent signals.
+- No feature is removed or promoted; no multiplier/allocation/model change is
+  justified. See `docs/feature_rankic_analysis.md` for the full limitations
+  and final research decision.

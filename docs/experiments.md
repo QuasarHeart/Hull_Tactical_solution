@@ -20,6 +20,7 @@
 | Phase 5 | 官方 137 天窗口的收益来自哪里？ | `scripts/run_phase5_window_attribution.py`, `scripts/score_live_window.py` | `docs/phase5_competition_window_attribution.md`, `docs/live_window_20251216_20260706.md` | 官方公式复算 2.192；反转信号 0.055；multiplier=1 为 0.556；shuffle p≈0.052 |
 | Phase 6 | 信号是否跨 regime、是否集中、能否在 locked window 复现？ | `scripts/run_phase6_signal_robustness.py`, `scripts/score_live_window.py` | `docs/phase6_signal_robustness.md`, `docs/phase6_preregistration.md` | 官方 2.192 但 HAC raw p=0.014、Holm p=0.085；locked 95 天 Daily 1.382、Offline 2.711，均不显著 |
 | Phase 7 | 如何把证据、限制和复现材料整合成可审计报告？ | `scripts/make_phase7_assets.py`, `scripts/build_data_manifest.py` | `docs/final_research_report.md`, `data/manifest.json` | 冻结 GBDT，保留 evidence map；不把 holdout 结果用于选参 |
+| Phase 8 | 单个特征与未来收益的时间序列 RankIC 是否跨折/regime 稳定？冗余和多重检验后还剩什么？ | `scripts/run_phase8_feature_rankic.py` | `docs/feature_rankic_analysis.md` | 99 个 model-input 特征中 5 个通过 BH；D1/D2 完全重复；regime 和交易成本仍有限制；不选特征 |
 
 产物默认写入 `reports/<phase>/`，该目录被 `.gitignore` 忽略；需要长期保存的
 结论、脚本、配置和 manifest 在 `docs/`、`scripts/`、`configs/` 与 `data/manifest.json`。

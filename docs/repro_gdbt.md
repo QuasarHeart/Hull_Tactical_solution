@@ -38,7 +38,7 @@ scripts/
   notebook_reference.py  直接 exec 提交 notebook 作为参照
   ingest_daily.py / predict_latest.py / daily_job.py  每日链路
 deploy/           systemd service + timer + 安装说明
-tests/            42 个测试：指标、数据、特征、泄漏、管线、notebook 对齐、每日 ingest、验证、评估与 Phase 6
+tests/            46 个测试：指标、数据、特征、泄漏、管线、notebook 对齐、每日 ingest、验证、评估、Phase 6 与 Phase 8
 ```
 
 ## 2. Notebook 复现（in-sample）
@@ -217,7 +217,7 @@ python scripts/daily_job.py
 再启用 `hull-daily.timer`（每天 08:30 Asia/Shanghai，`Persistent=true`）。失败会
 非零退出并保留上一版 panel/prediction；每次成功写 `ingest_log.jsonl` 和 `health.json`。
 测试覆盖：`tests/test_ingest.py`（schema、target 尾部、特征不匹配、幂等 upsert、拒绝缩表、
-state/health），全套 `pytest -q` **42 passed**。
+state/health），全套 `pytest -q` **46 passed**。
 
 ## 7. Deployment-faithful 评估（Phase 3）
 

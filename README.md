@@ -13,7 +13,7 @@ deploy/       systemd service/timer and server installation notes
 docs/         reproduction/validation/deployment/live-window reports
 docs/assets/  architecture.html, architecture.png, core_results.png/svg
 docs/reference/  official competition scoring notebook
-tests/        metric parity, notebook parity, leakage, ingest, research and Phase 6 tests
+tests/        metric parity, notebook parity, leakage, ingest, research, Phase 6 and Phase 8 tests
 data/manifest.json  data hashes, row counts, date ranges and provenance
 ```
 
@@ -25,7 +25,9 @@ The repository has completed the GBDT research sequence:
 - Phase 4 fixed/dynamic feature-builder and retraining attribution;
 - Phase 5 official 137-day competition-window attribution;
 - Phase 6 signal-by-regime, multiplier, concentration and independent-window
-  robustness checks.
+  robustness checks;
+- Phase 7 final report, decision history and data/version audit;
+- Phase 8 feature-level RankIC diagnosis (read-only; no feature selection).
 
 Deep Learning is intentionally not implemented yet; a GBDT incremental-value
 gate precedes it.
@@ -249,8 +251,28 @@ pytest -q
 ```
 
 This rebuilds the presentation figures, refreshes `data/manifest.json`, and
-runs the 42-test audit. The final narrative, limitations and artifact index are
+runs the full test audit. The final narrative, limitations and artifact index are
 in `docs/final_research_report.md`.
+
+## Phase 8 feature-level RankIC diagnosis
+
+```bash
+python scripts/run_phase8_feature_rankic.py \
+  --config configs/gdbt/phase8.yaml
+```
+
+This is a read-only diagnostic over the 1,488 six-fold OOF dates. It rebuilds
+the fold-specific, point-in-time model inputs one date at a time; it does not
+train a model or modify the OOF. Results are in
+`docs/feature_rankic_analysis.md` and `reports/feature_rankic_*` /
+`reports/feature_rankic_figures/`.
+
+Headline: 94 raw + 5 derived features form a 99-feature model-input union. Five
+features (E19, M1, V7, V9, V13) pass BH FDR at q<=0.05 in the model-input
+representation; V10 is borderline (q=0.052) and significant in the raw
+representation (q=0.005). D1/D2 are exact duplicates; 14 pairs have |rho|>=0.90.
+No feature is selected, no model is retrained, and the high-vol regime is too
+imbalanced for a regime rule.
 
 ## Weights & Biases
 
