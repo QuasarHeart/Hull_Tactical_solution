@@ -1,0 +1,24 @@
+_base_: phase5.yaml
+run_name: gdbt_phase6_signal_robustness
+phase6:
+  official_start: "2025-12-16"
+  official_end: "2026-07-06"
+  post_start: "2026-07-07"
+  post_end: "2026-11-17"
+  primary_strategy: daily
+  secondary_strategies: [fixed_rolling, offline]
+  multiplier_grid: [1, 50, 100, 200, 300, 400, 500, 600, 800, 1000, 1200]
+  n_signal_bins: 5
+  regime_quantiles: [0.33, 0.67]
+  hac_max_lags: 10
+  block_length: 20
+  bootstrap_reps: 2000
+  test_family:
+    - daily_mean_excess_positive
+    - daily_vs_buy_hold
+    - daily_vs_constant_1.25
+    - daily_vs_vol_only
+    - rank_ic_positive
+    - q5_minus_q1_positive
+  concentration_months: ["2026-01", "2026-04"]
+  block_deletion_lengths: [3, 5]
