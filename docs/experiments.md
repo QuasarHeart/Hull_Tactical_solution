@@ -4,13 +4,35 @@
 脚本：`scripts/run_experiments.py --shuffles 1000`  
 输入：已保存的 6 折 CV OOF
 
+## 0. 全项目实验结果索引
+
+本页既是 Phase 2 的基线/消融记录，也是全项目的实验索引。所有结果都区分
+`in-sample replay`、六折 walk-forward、官方 live window 和 locked post-window；
+不要把不同口径的分数直接横比。
+
+| Phase | 问题 | 主要入口 | 记录 | 核心结论 |
+| --- | --- | --- | --- | --- |
+| replay / CV | notebook 能否复现？六折 OOF 是什么？ | `scripts/run_replay.py`, `scripts/run_cv.py` | `docs/repro_gdbt.md` | allocation 与 notebook 对齐 <1e-6；六折共 1,488 天 |
+| Phase 2 | 模型是否优于 B&H、Constant、Vol-only？ | `scripts/run_experiments.py` | 本页 | 六折均值：B&H 1.498、Constant 1.25 1.411、Vol-only 1.267、Online 1.253、Daily 0.871、Offline 0.833 |
+| Phase 2b | 时间 null、bootstrap、exposure matching | `scripts/run_validation.py` | `docs/gbdt_validation.md` | 没有检出可靠的增量；预测 IC 和时间置换都不显著 |
+| Phase 3 | 严格部署口径能否复现 Online？E14 缺失怎么办？ | `scripts/run_daily_retrain.py`, `scripts/compare_deployment_modes.py`, `scripts/run_e14_stress.py` | `docs/deployment_eval.md` | Daily 0.871 < Online 1.253，也低于简单基准；E14 保持 median fill |
+| Phase 4 | feature builder 漂移还是模型重训造成差距？ | `scripts/run_phase4_dynamic_fixed.py`, `scripts/run_feature_builder_attribution.py` | `docs/feature_builder_attribution.md` | 2×2 点估计指向 dynamic builder 负向、rolling 正向；所有 paired CI 跨 0 |
+| Phase 5 | 官方 137 天窗口的收益来自哪里？ | `scripts/run_phase5_window_attribution.py`, `scripts/score_live_window.py` | `docs/phase5_competition_window_attribution.md`, `docs/live_window_20251216_20260706.md` | 官方公式复算 2.192；反转信号 0.055；multiplier=1 为 0.556；shuffle p≈0.052 |
+| Phase 6 | 信号是否跨 regime、是否集中、能否在 locked window 复现？ | `scripts/run_phase6_signal_robustness.py`, `scripts/score_live_window.py` | `docs/phase6_signal_robustness.md`, `docs/phase6_preregistration.md` | 官方 2.192 但 HAC raw p=0.014、Holm p=0.085；locked 95 天 Daily 1.382、Offline 2.711，均不显著 |
+| Phase 8 | 如何把证据、限制和复现材料整合成可审计报告？ | `scripts/make_phase8_assets.py`, `scripts/build_data_manifest.py` | `docs/final_research_report.md`, `data/manifest.json` | 冻结 GBDT，保留 evidence map；不把 holdout 结果用于选参 |
+
+产物默认写入 `reports/<phase>/`，该目录被 `.gitignore` 忽略；需要长期保存的
+结论、脚本、配置和 manifest 在 `docs/`、`scripts/`、`configs/` 与 `data/manifest.json`。
+
 > 后续 GBDT 增量价值验证（temporal nulls、paired bootstrap、exposure matching、prediction
 > quality、allocation attribution）见 `docs/gbdt_validation.md`；决策记录见
 > `docs/research_decisions.md`。本页保留第一阶段基线/消融的结果。
 >
 > Phase 3 的 deployment-faithful daily retrain、统一比较和 E14 检查见
 > `docs/deployment_eval.md`。Phase 4 的 feature-builder / retraining 2×2 归因见
-> `docs/feature_builder_attribution.md`。
+> `docs/feature_builder_attribution.md`。Phase 5 的官方窗口归因见
+> `docs/phase5_competition_window_attribution.md`；Phase 6 的 signal × regime、
+> multiplier、concentration 和独立窗口检验见 `docs/phase6_signal_robustness.md`。
 
 - offline：`models/20261121_170606_gdbt_notebook_cv_offline_ae2a75`
 - online：`models/20261121_170851_gdbt_notebook_cv_online_0746df`

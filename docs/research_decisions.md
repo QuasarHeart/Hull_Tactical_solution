@@ -4,6 +4,27 @@
 范围：在进入 Deep Learning 之前，验证现有 GBDT 策略相对简单基准的增量价值。  
 约束：只复用已保存的 6 折 OOF；不重新训练、不调参、不修改正式预测文件。
 
+## Decision index
+
+| ID | Decision | Status |
+| --- | --- | --- |
+| D1 | 暂停 Deep Learning，先建立可证伪的 GBDT 基线 | active (DL still not started) |
+| D2 | 评估只读已实现 OOF，不反向调整模型 | active |
+| D3 | Block length 主口径 20，报告敏感性 | active |
+| D4 | Fold-stratified paired block bootstrap | active |
+| D5 | Exposure baseline 必须因果 | active |
+| D6 | 现金/不可验证情形统一记 0 | active |
+| D7 | 结论标签 directional / inconclusive | active |
+| D8 | 六折阶段不进入 DL | active at that gate |
+| D9 | Deployment-faithful daily replay 是验收口径 | active |
+| D10 | E14 继续 median fill，暂不加 indicator | active |
+| D11 | Phase 3：严格部署没有复现 Online 优势 | active |
+| D12 | Phase 4：2×2 归因，dynamic builder 为描述性负向 | active |
+| D13 | Phase 4 decision gate：停止 further GBDT optimization | active |
+| D14 | Phase 5：官方窗口分数可复现，但 signal 证据弱 | active |
+| D15 | Phase 6：HAC/Holm 后无稳健 alpha，holdout 不选参 | active |
+| D16 | Phase 8：冻结 GBDT、发布报告与审计材料 | active |
+
 ## Decision log
 
 ### D1. 暂停 Deep Learning 实现
@@ -152,6 +173,51 @@ Phase 5 在官方 137 天窗口（2025-12-16～2026-07-06）上做 signal/alloca
 signal 方向有贡献，但统计上仍不够强。继续调 GBDT 不符合收益/复杂度权衡；本阶段
 不实现 DL。
 
+### D15. Phase 6 signal robustness and independent validation
+
+Phase 6 在运行 2026-07-07 之后窗口之前，把 multiplier grid、regime 阈值、
+concentration 规则和 HAC/block-bootstrap 检验族冻结在
+`docs/phase6_preregistration.md` 与 `configs/gdbt/phase6.yaml`。独立窗口的
+Daily Retrain 95 天 score 1.382、Offline 2.711，简单基准为负；但 daily 的
+HAC 检验全部不显著，Offline 是描述性结果，不能反过来选模型。
+
+官方窗口的六检验经 Holm 后全部不显著：daily mean excess 的单侧 raw p=0.014，
+Holm p=0.085；vs Buy & Hold、Constant 1.25、Vol-only 的 HAC p 分别为
+0.371/0.486/0.136；Rank IC 0.114（bootstrap CI 跨 0）、Q5−Q1 0.00257
+（CI 跨 0）。低/中波动 IC 较高，但各仅 21 天、每 quintile 4–5 天；高波动
+95 天几乎无信号。1 月和 4 月的正贡献高度集中（前 3 个正贡献日占 62.1%/53.3%，
+前 5 个占 90.3%/74.2%），删除一个 5 日 block 可使 score 下降 0.653/0.382。
+
+因此：保留“positive point estimate + exposure-layer 贡献”的描述，不把它升级为
+robust alpha；不根据这个窗口选择 200 multiplier 或 Offline。GBDT 冻结为基线，
+下一步若进入 DL，复用同一评估接口和预注册流程。详见
+`docs/phase6_signal_robustness.md`。
+
+### D16. Phase 8 final synthesis and release audit
+
+Phase 8 不再新增模型或调参，只把已有证据整理为可审计的最终报告：
+`docs/final_research_report.md`；实验索引进入 `docs/experiments.md`；决策历史
+在本文件；README 增加架构图、核心结果图和限制；`data/manifest.json` 记录数据
+哈希、行数、日期范围和 live/raw 的 gitignored 状态；测试覆盖扩展到 42 项。
+
+发布判断：**GBDT 保持冻结，不再根据单一窗口优化；DL 尚未启动**。最终报告的
+Limitations 必须明确列出：单一窗口收益集中、signal 统计证据有限、历史 OOF
+未证明稳定增量、独立窗口仅 95 天且 regime 不平衡、交易成本后的经济价值未充分
+证明、Offline 与 Daily 在不同时期排序不同。报告和 README 不使用“稳定 alpha”
+或“已证明优于基准”的表述。
+
+复现入口：
+
+```bash
+python scripts/run_phase6_signal_robustness.py
+python scripts/make_phase8_assets.py
+python scripts/build_data_manifest.py
+pytest -q
+```
+
+Phase 8 的 Git commit 按“Phase 6 研究 + Phase 8 文档/资产/审计”拆分；push 仍由
+用户决定，不自动执行。
+
 ## Anti-leakage guardrails
 
 1. Phase 2/3 validation 不重新训练；Phase 4C 重新训练 C，但严格使用 `date_id < t` 的数据，
@@ -163,6 +229,8 @@ signal 方向有贡献，但统计上仍不够强。继续调 GBDT 不符合收�
 6. 所有随机实验固定 seed，并保存配置和重复次数。
 7. Daily retrain 对每个测试日强制要求 `train_end < test_date_id`，并使用当时已实现的
    target；失败即中止，不静默跳过。
+8. Phase 6 的 post-window 协议、multiplier grid、regime 阈值和检验族在读取
+   post-2026-07-06 结果前冻结；post-window 不参与任何参数选择。
 
 ## Open decisions
 
@@ -173,3 +241,8 @@ signal 方向有贡献，但统计上仍不够强。继续调 GBDT 不符合收�
 - E14 暂定 median fill、无 indicator；需要更长已实现窗口或 live A/B 再决定。
 - Daily retrain 与 Online 的差距需分解为 feature median drift、模型重训随机性和仓位路径
   依赖；在解释前不要把它归因为单一原因。
+- Phase 6：是否接受“point estimate 正但 Holm 后不显著”为停止 GBDT 调参的依据？
+- Phase 6：若进入 DL，是否把 95 天 post-window 保留为最终的 locked test，而不是
+  再做探索性分析？
+- Phase 6：multiplier 若要简化，应先预注册 fixed 值并用新的独立窗口确认；不能直接
+  采用本窗口的 200。

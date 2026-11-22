@@ -11,8 +11,10 @@ configs/      base config + gdbt CV/phase configs + validation config
 scripts/      thin entry points for replay, CV, live ingest, research phases
 deploy/       systemd service/timer and server installation notes
 docs/         reproduction/validation/deployment/live-window reports
+docs/assets/  architecture.html, architecture.png, core_results.png/svg
 docs/reference/  official competition scoring notebook
-tests/        metric parity, notebook parity, leakage, ingest and research tests
+tests/        metric parity, notebook parity, leakage, ingest, research and Phase 6 tests
+data/manifest.json  data hashes, row counts, date ranges and provenance
 ```
 
 The repository has completed the GBDT research sequence:
@@ -21,10 +23,41 @@ The repository has completed the GBDT research sequence:
 - baseline/ablation and temporal-validation studies;
 - deployment-faithful daily-retrain and E14 stress checks;
 - Phase 4 fixed/dynamic feature-builder and retraining attribution;
-- Phase 5 official 137-day competition-window attribution.
+- Phase 5 official 137-day competition-window attribution;
+- Phase 6 signal-by-regime, multiplier, concentration and independent-window
+  robustness checks.
 
 Deep Learning is intentionally not implemented yet; a GBDT incremental-value
 gate precedes it.
+
+## Start here
+
+- **Final report:** [`docs/final_research_report.md`](docs/final_research_report.md)
+- **Experiment index:** [`docs/experiments.md`](docs/experiments.md)
+- **Decision history:** [`docs/research_decisions.md`](docs/research_decisions.md)
+- **Data audit:** [`docs/data_manifest.md`](docs/data_manifest.md), [`data/manifest.json`](data/manifest.json)
+- **Architecture source:** [`docs/assets/architecture.html`](docs/assets/architecture.html)
+
+![Pipeline architecture](docs/assets/architecture.png)
+
+![Core evidence map](docs/assets/core_results.png)
+
+### Research verdict
+
+| Evidence layer | Result | Reading |
+| --- | ---: | --- |
+| Six-fold CV, fold-mean | B&H 1.498 · Constant 1.25 1.411 · Vol-only 1.267 · Online 1.253 · Daily 0.871 | no stable incremental value |
+| Official live window, 137d | Daily 2.192 (proxy) | strong point estimate, weak inference |
+| Locked post-window, 95d | Daily 1.382 · Offline 2.711 | positive but not statistically significant |
+| Phase 6 multiple testing | daily excess raw p=0.014, Holm p=0.085 | no pre-registered test survives 5% after correction |
+
+The headline is deliberately not “model beats the market.” The defensible claim is:
+the pipeline reproduces the notebook, exposes the allocation-layer contribution,
+and produces an **inconclusive but auditable** signal. The six limitations are
+documented in the final report: single-window concentration, limited signal
+evidence, no proven CV increment, a 95-day/regime-imbalanced holdout, unproven
+net-of-cost economics, and unstable Daily/Offline ranking across periods.
+
 
 ## Setup
 
@@ -188,6 +221,36 @@ python scripts/run_phase5_window_attribution.py
 This runs the signal-direction, prediction-shuffle, multiplier, smoothing,
 prediction-bin, monthly and volatility-regime ablations on the 137-day official
 live window. See `docs/phase5_competition_window_attribution.md`.
+
+## Phase 6 signal robustness and independent validation
+
+```bash
+python scripts/score_live_window.py \
+  --start 2026-07-07 --end 2026-11-17 --warmup-start 2026-07-07 \
+  --output reports/live_window_20260707_20261117
+python scripts/run_phase6_signal_robustness.py
+```
+
+Phase 6 pre-registers the multiplier grid, regimes, concentration tests and
+HAC/block-bootstrap family before reading the post-2026-07-06 window. Results
+are in `docs/phase6_signal_robustness.md` and
+`reports/phase6_signal_robustness/`. Headline: positive point estimates remain,
+but none of the six pre-registered official-window tests survives Holm
+correction; the independent 95-day window is positive for Daily Retrain and
+Offline but is not statistically significant. Do not select a multiplier or
+model from these post-window results.
+
+## Phase 8 report and audit
+
+```bash
+python scripts/make_phase8_assets.py
+python scripts/build_data_manifest.py
+pytest -q
+```
+
+This rebuilds the presentation figures, refreshes `data/manifest.json`, and
+runs the 42-test audit. The final narrative, limitations and artifact index are
+in `docs/final_research_report.md`.
 
 ## Weights & Biases
 
