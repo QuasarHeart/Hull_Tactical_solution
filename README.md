@@ -24,25 +24,45 @@
 
 ---
 
-## 2. 架构
+## 2. 比赛背景：有效市场假说与预测问题
+
+Hull Tactical 的 Kaggle 竞赛要求参赛者预测 **S&P 500 的日度超额收益**，并把预测转换为每个交易日的市场仓位。仓位范围是 `0` 到 `2`：`0` 表示全部持有现金，`1` 表示满仓，`2` 表示两倍杠杆。策略还必须控制风险，不能让波动率明显超过市场；官方约束是 **120% 的市场波动率**。
+
+评分不是普通夏普，而是竞赛定制的一个变体：它惩罚两类行为：
+
+- 策略波动率显著高于市场；
+- 策略收益低于市场收益。
+
+这使问题同时包含“预测收益”和“仓位/风险管理”两部分。官方说明将竞赛定位为对 **有效市场假说（Efficient Market Hypothesis，EMH）** 的检验。EMH 的核心主张是：价格已经反映了可获得的信息，因此持续战胜市场不可能。弱式有效市场假说认为历史价格无法提供稳定超额收益，半强式有效市场假说认为公开信息已经被定价，强式有效市场假说则进一步认为所有信息（包括非公开信息）都已经反映在价格中。
+
+竞赛发起方给出的相反论点是：市场充满噪声、行为偏差和结构性摩擦，机器学习加上公开市场数据和专有信号，可能找到传统理论没有覆盖的可重复模式；但即使存在模式，也必须能承受交易成本、杠杆约束和实盘执行问题。竞赛还包含一段独立预测期，模型会在真实市场数据上运行，因此这不是纯学术回测。
+
+官方竞赛说明：[Hull Tactical - Market Prediction](https://www.kaggle.com/competitions/hull-tactical-market-prediction/overview)。
+
+本项目因此把问题当作一个**可证伪的预测与仓位管理问题**，而不是把排行榜分数直接当作 EMH 被推翻的证据。研究重点是：预测信号是否提供增量方向信息，仓位分配是否只是暴露层的贡献，以及这些结论能否通过时间顺序验证、成本压力、多重检验和独立窗口检查。
+
+---
+
+## 3. 架构
 
 ```mermaid
+%%{init: {"themeVariables": {"fontSize": "12px"}, "flowchart": {"wrappingWidth": 300}}}%%
 flowchart TB
     subgraph Data [数据层]
         C["比赛训练 / 测试数据"]
         L["Hull 每日 CSV"]
-        P["统一数据面板<br/>date_id · target · target_metric · 94 个原始特征"]
+        P["统一数据面板<br/>date_id · target · target_metric<br/>94 个原始特征"]
         C --> P
         L --> P
-        P --> H["数据清单<br/>SHA-256 · 行数 · 日期范围"]
+        P --> H["数据清单<br/>SHA-256 · 行数<br/>日期范围"]
     end
 
     subgraph Research [研究层]
-        F["滚动验证折<br/>800 日训练 · 1 日隔离 · 按日历年测试"]
-        B["按折构建特征<br/>覆盖率过滤 + 5 个衍生特征"]
-        M["GBDT 集成模型<br/>ElasticNet + XGBoost + LightGBM"]
-        A["仓位分配策略<br/>波动率目标 · 600/400 信号乘数 · 平滑 · 交易成本"]
-        E["折外评估<br/>官方评分 · IC · 回撤 · 换手率"]
+        F["滚动验证折<br/>800 日训练 · 1 日隔离<br/>按日历年测试"]
+        B["按折构建特征<br/>覆盖率过滤<br/>5 个衍生特征"]
+        M["GBDT 集成模型<br/>ElasticNet + XGBoost<br/>LightGBM"]
+        A["仓位分配策略<br/>波动率目标 · 600/400 乘数<br/>平滑 · 交易成本"]
+        E["折外评估<br/>官方评分 · IC<br/>回撤 · 换手率"]
         P --> F
         F --> B
         B --> M
@@ -79,6 +99,7 @@ dl/         序列模型接口，暂未实现
 ### 模型结构
 
 ```mermaid
+%%{init: {"themeVariables": {"fontSize": "12px"}, "flowchart": {"wrappingWidth": 300}}}%%
 flowchart LR
     X["99 个模型输入特征"] --> EN["ElasticNet<br/>alpha 0.01 · L1 0.5"]
     X --> XG["XGBoost<br/>350 棵树 · 深度 10"]
@@ -93,7 +114,7 @@ flowchart LR
 
 ---
 
-## 3. 数据契约
+## 4. 数据契约
 
 数据面板每个交易日一行：
 
@@ -112,7 +133,7 @@ flowchart LR
 
 ---
 
-## 4. 模型与仓位分配
+## 5. 模型与仓位分配
 
 训练窗口和模型参数由配置固定：
 
@@ -139,14 +160,15 @@ allocation   = (0.75 * allocation + 0.25 * previous) * (1 - 3e-5)
 
 ---
 
-## 5. 防止过拟合的设计
+## 6. 防止过拟合的设计
 
 这些是全项目统一执行的控制，不是对信号强度的宣称。
 
 ```mermaid
+%%{init: {"themeVariables": {"fontSize": "12px"}, "flowchart": {"wrappingWidth": 300}}}%%
 flowchart LR
     A["t 之前已实现的数据"] --> B["仅在训练窗口拟合<br/>特征统计量"]
-    B --> C["拟合 ElasticNet / XGBoost / LightGBM"]
+    B --> C["拟合<br/>ElasticNet / XGBoost / LightGBM"]
     C --> D["预测 t 的仓位"]
     D --> E["观察 t 的目标"]
     E --> F["进入 t + 1"]
@@ -169,7 +191,7 @@ flowchart LR
 
 ---
 
-## 6. 结果概览
+## 7. 结果概览
 
 ### 六折滚动验证
 
@@ -226,7 +248,7 @@ Phase 8 对 99 个模型输入特征计算时间序列秩相关信息系数（Ra
 
 ---
 
-## 7. 八个实验阶段
+## 8. 八个实验阶段
 
 完整报告见 [`docs/experiments.md`](docs/experiments.md)。
 
@@ -243,7 +265,7 @@ Phase 8 对 99 个模型输入特征计算时间序列秩相关信息系数（Ra
 
 ---
 
-## 8. 目录结构
+## 9. 目录结构
 
 ```text
 common/      共享数据、字段、特征、指标、仓位分配、回测、管线、
@@ -264,7 +286,7 @@ models/      生成的运行产物和模型文件（gitignored）
 
 ---
 
-## 9. 快速开始
+## 10. 快速开始
 
 ```bash
 conda create -n hull python=3.12 -y
@@ -293,7 +315,7 @@ python scripts/run_phase8_feature_rankic.py \
 
 ---
 
-## 10. 复现规则
+## 11. 复现规则
 
 - `pyproject.toml` 是唯一依赖源；不再使用 `requirements.txt`。
 - 每次运行在 `models/<run_id>/` 下写入运行清单和模型产物。
@@ -304,7 +326,7 @@ python scripts/run_phase8_feature_rankic.py \
 
 ---
 
-## 11. 范围与限制
+## 12. 范围与限制
 
 - OOF 是六段不连续日历年的 1,488 个交易日，不是一条连续账户曲线。
 - 私有排行榜是一条已实现的实盘路径，不是第二次独立回测。
@@ -313,7 +335,7 @@ python scripts/run_phase8_feature_rankic.py \
 
 ---
 
-## 12. 文档
+## 13. 文档
 
 | 文档 | 内容 |
 | --- | --- |
@@ -325,7 +347,7 @@ python scripts/run_phase8_feature_rankic.py \
 | [`docs/data_manifest.md`](docs/data_manifest.md) | 数据来源和哈希 |
 | [`docs/research_decisions.md`](docs/research_decisions.md) | D1–D17 决策记录 |
 
-## 13. 部署
+## 14. 部署
 
 每日任务：
 
