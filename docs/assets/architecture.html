@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hull Tactical Research Pipeline — Architecture</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+      background: #020617; min-height: 100vh; padding: 2rem; color: white;
+    }
+    .container { max-width: 1240px; margin: 0 auto; }
+    .header { margin-bottom: 1.5rem; }
+    .header-row { display: flex; align-items: center; gap: 1rem; margin-bottom: .5rem; }
+    .pulse-dot { width: 12px; height: 12px; background: #22d3ee; border-radius: 50%; animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100% {opacity:1} 50% {opacity:.45} }
+    h1 { font-size: 1.55rem; font-weight: 700; letter-spacing: -.025em; }
+    .subtitle { color: #94a3b8; font-size: .8rem; margin-left: 1.75rem; }
+    .diagram-container {
+      background: rgba(15,23,42,.5); border-radius: 1rem; border: 1px solid #1e293b;
+      padding: 1rem; overflow-x: auto;
+    }
+    svg { width: 100%; min-width: 1000px; display: block; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit,minmax(280px,1fr)); gap: 1rem; margin-top: 1.25rem; }
+    .card { background: rgba(15,23,42,.5); border-radius: .75rem; border: 1px solid #1e293b; padding: 1.1rem; }
+    .card-header { display: flex; align-items: center; gap: .5rem; margin-bottom: .65rem; }
+    .card-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .cyan {background:#22d3ee}.emerald{background:#34d399}.violet{background:#a78bfa}.amber{background:#fbbf24}.rose{background:#fb7185}
+    .card h3 { font-size: .78rem; font-weight: 600; }
+    .card ul { list-style: none; color: #94a3b8; font-size: .7rem; line-height: 1.55; }
+    .card li { margin-bottom: .25rem; }
+    .footer { text-align:center; margin-top:1.2rem; color:#475569; font-size:.7rem; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <div class="header-row"><div class="pulse-dot"></div><h1>Hull Tactical Research Pipeline</h1></div>
+    <p class="subtitle">causal data → shared features/allocation → GBDT research → frozen evaluation → live artifacts</p>
+  </div>
+
+  <div class="diagram-container">
+    <svg viewBox="0 0 1200 760" role="img" aria-label="Hull Tactical research pipeline architecture">
+      <defs>
+        <marker id="arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+          <polygon points="0 0, 10 3.5, 0 7" fill="#64748b"/>
+        </marker>
+        <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+          <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
+        </pattern>
+      </defs>
+      <rect width="1200" height="760" fill="url(#grid)"/>
+
+      <!-- data sources -->
+      <text x="40" y="42" fill="#94a3b8" font-size="10" font-weight="600">DATA SOURCES</text>
+      <rect x="40" y="58" width="300" height="82" rx="6" fill="rgba(120,53,15,.3)" stroke="#fbbf24" stroke-width="1.5"/>
+      <text x="190" y="82" fill="white" font-size="12" font-weight="600" text-anchor="middle">Hull daily CSV</text>
+      <text x="190" y="100" fill="#94a3b8" font-size="9" text-anchor="middle">20261120_data.csv · 9,291 rows</text>
+      <text x="190" y="116" fill="#fbbf24" font-size="8" text-anchor="middle">SHA-256 checked · 3 pending targets</text>
+
+      <rect x="370" y="58" width="300" height="82" rx="6" fill="rgba(76,29,149,.35)" stroke="#a78bfa" stroke-width="1.5"/>
+      <text x="520" y="82" fill="white" font-size="12" font-weight="600" text-anchor="middle">Competition data</text>
+      <text x="520" y="100" fill="#94a3b8" font-size="9" text-anchor="middle">train.csv (9,048 × 98)</text>
+      <text x="520" y="116" fill="#94a3b8" font-size="9" text-anchor="middle">test.csv (10 × 99) · date_map.csv</text>
+
+      <rect x="700" y="58" width="300" height="82" rx="6" fill="rgba(30,41,59,.5)" stroke="#94a3b8" stroke-width="1.5"/>
+      <text x="850" y="82" fill="white" font-size="12" font-weight="600" text-anchor="middle">Canonical panel</text>
+      <text x="850" y="100" fill="#94a3b8" font-size="9" text-anchor="middle">date · target · target_metric</text>
+      <text x="850" y="116" fill="#94a3b8" font-size="9" text-anchor="middle">94 features · strict point-in-time</text>
+
+      <!-- arrows into common -->
+      <line x1="190" y1="140" x2="190" y2="205" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow)"/>
+      <line x1="520" y1="140" x2="520" y2="205" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrow)"/>
+      <line x1="850" y1="140" x2="850" y2="205" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+      <!-- common boundary -->
+      <rect x="40" y="205" width="1120" height="155" rx="12" fill="rgba(8,51,68,.25)" stroke="#22d3ee" stroke-width="1.2" stroke-dasharray="8,4"/>
+      <text x="58" y="226" fill="#22d3ee" font-size="10" font-weight="600">COMMON / SHARED CONTRACT</text>
+      <rect x="62" y="243" width="196" height="84" rx="6" fill="rgba(8,51,68,.45)" stroke="#22d3ee" stroke-width="1.5"/>
+      <text x="160" y="266" fill="white" font-size="11" font-weight="600" text-anchor="middle">Data &amp; schema</text>
+      <text x="160" y="284" fill="#94a3b8" font-size="8" text-anchor="middle">config · data · schema</text>
+      <text x="160" y="300" fill="#94a3b8" font-size="8" text-anchor="middle">ingest · registry</text>
+      <text x="160" y="316" fill="#94a3b8" font-size="8" text-anchor="middle">date_map / hashes</text>
+
+      <rect x="280" y="243" width="196" height="84" rx="6" fill="rgba(8,51,68,.45)" stroke="#22d3ee" stroke-width="1.5"/>
+      <text x="378" y="266" fill="white" font-size="11" font-weight="600" text-anchor="middle">Causal features</text>
+      <text x="378" y="284" fill="#94a3b8" font-size="8" text-anchor="middle">features · transforms</text>
+      <text x="378" y="300" fill="#94a3b8" font-size="8" text-anchor="middle">splits · leakage tests</text>
+      <text x="378" y="316" fill="#94a3b8" font-size="8" text-anchor="middle">99 feature schema</text>
+
+      <rect x="498" y="243" width="196" height="84" rx="6" fill="rgba(8,51,68,.45)" stroke="#22d3ee" stroke-width="1.5"/>
+      <text x="596" y="266" fill="white" font-size="11" font-weight="600" text-anchor="middle">Metrics &amp; evaluation</text>
+      <text x="596" y="284" fill="#94a3b8" font-size="8" text-anchor="middle">official score · IC</text>
+      <text x="596" y="300" fill="#94a3b8" font-size="8" text-anchor="middle">HAC · block bootstrap</text>
+      <text x="596" y="316" fill="#94a3b8" font-size="8" text-anchor="middle">Holm · validation</text>
+
+      <rect x="716" y="243" width="196" height="84" rx="6" fill="rgba(8,51,68,.45)" stroke="#22d3ee" stroke-width="1.5"/>
+      <text x="814" y="266" fill="white" font-size="11" font-weight="600" text-anchor="middle">Allocation &amp; backtest</text>
+      <text x="814" y="284" fill="#94a3b8" font-size="8" text-anchor="middle">multiplier · smoothing</text>
+      <text x="814" y="300" fill="#94a3b8" font-size="8" text-anchor="middle">vol target · costs</text>
+      <text x="814" y="316" fill="#94a3b8" font-size="8" text-anchor="middle">drawdown · turnover</text>
+
+      <rect x="934" y="243" width="196" height="84" rx="6" fill="rgba(8,51,68,.45)" stroke="#22d3ee" stroke-width="1.5"/>
+      <text x="1032" y="266" fill="white" font-size="11" font-weight="600" text-anchor="middle">Experiment plumbing</text>
+      <text x="1032" y="284" fill="#94a3b8" font-size="8" text-anchor="middle">experiments · registry</text>
+      <text x="1032" y="300" fill="#94a3b8" font-size="8" text-anchor="middle">tracker · manifests</text>
+      <text x="1032" y="316" fill="#94a3b8" font-size="8" text-anchor="middle">immutable OOF hashes</text>
+
+      <!-- common to model -->
+      <line x1="378" y1="360" x2="378" y2="425" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow)"/>
+      <line x1="596" y1="360" x2="596" y2="425" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow)"/>
+      <text x="606" y="398" fill="#94a3b8" font-size="8">Batch / Predictor contract</text>
+
+      <!-- model family -->
+      <text x="40" y="410" fill="#94a3b8" font-size="10" font-weight="600">MODEL FAMILIES</text>
+      <rect x="40" y="425" width="440" height="120" rx="8" fill="rgba(6,78,59,.4)" stroke="#34d399" stroke-width="1.5"/>
+      <text x="260" y="450" fill="white" font-size="12" font-weight="600" text-anchor="middle">GBDT family</text>
+      <text x="260" y="470" fill="#94a3b8" font-size="9" text-anchor="middle">ElasticNet 0.45 · XGBoost 0.55 · LightGBM 0.45</text>
+      <text x="260" y="488" fill="#94a3b8" font-size="9" text-anchor="middle">fixed builder + fixed model (A)</text>
+      <text x="260" y="504" fill="#94a3b8" font-size="9" text-anchor="middle">fixed builder + rolling update (B)</text>
+      <text x="260" y="520" fill="#94a3b8" font-size="9" text-anchor="middle">dynamic builder + fixed/rolling (C/D)</text>
+      <text x="260" y="536" fill="#34d399" font-size="8" text-anchor="middle">current production research baseline</text>
+
+      <rect x="510" y="425" width="300" height="120" rx="8" fill="rgba(30,41,59,.55)" stroke="#94a3b8" stroke-width="1.5"/>
+      <text x="660" y="450" fill="white" font-size="12" font-weight="600" text-anchor="middle">DL family — reserved</text>
+      <text x="660" y="470" fill="#94a3b8" font-size="9" text-anchor="middle">GRU / TCN interface only</text>
+      <text x="660" y="488" fill="#94a3b8" font-size="9" text-anchor="middle">not implemented</text>
+      <text x="660" y="506" fill="#94a3b8" font-size="9" text-anchor="middle">gated by GBDT evidence</text>
+
+      <rect x="840" y="425" width="320" height="120" rx="8" fill="rgba(76,29,149,.4)" stroke="#a78bfa" stroke-width="1.5"/>
+      <text x="1000" y="450" fill="white" font-size="12" font-weight="600" text-anchor="middle">Research phases</text>
+      <text x="1000" y="470" fill="#94a3b8" font-size="9" text-anchor="middle">replay · 6-fold CV · baselines</text>
+      <text x="1000" y="488" fill="#94a3b8" font-size="9" text-anchor="middle">deployment-faithful · 2×2 attribution</text>
+      <text x="1000" y="506" fill="#94a3b8" font-size="9" text-anchor="middle">official 137d · locked 95d</text>
+      <text x="1000" y="524" fill="#a78bfa" font-size="8" text-anchor="middle">Phase 1–6 · no parameter selection on holdout</text>
+
+      <!-- model to outputs -->
+      <line x1="260" y1="545" x2="260" y2="610" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow)"/>
+      <line x1="660" y1="545" x2="660" y2="610" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
+      <line x1="1000" y1="545" x2="1000" y2="610" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+      <!-- outputs -->
+      <text x="40" y="596" fill="#94a3b8" font-size="10" font-weight="600">OUTPUTS</text>
+      <rect x="40" y="610" width="440" height="100" rx="8" fill="rgba(120,53,15,.3)" stroke="#fbbf24" stroke-width="1.5"/>
+      <text x="260" y="634" fill="white" font-size="11" font-weight="600" text-anchor="middle">Reports &amp; artifacts</text>
+      <text x="260" y="652" fill="#94a3b8" font-size="9" text-anchor="middle">reports/ · models/ · manifests</text>
+      <text x="260" y="668" fill="#94a3b8" font-size="9" text-anchor="middle">OOF positions · tables · plots</text>
+      <text x="260" y="684" fill="#fbbf24" font-size="8" text-anchor="middle">generated artifacts are gitignored</text>
+
+      <rect x="510" y="610" width="300" height="100" rx="8" fill="rgba(136,19,55,.4)" stroke="#fb7185" stroke-width="1.5"/>
+      <text x="660" y="634" fill="white" font-size="11" font-weight="600" text-anchor="middle">Live deployment</text>
+      <text x="660" y="652" fill="#94a3b8" font-size="9" text-anchor="middle">ingest → predict → latest_prediction</text>
+      <text x="660" y="668" fill="#94a3b8" font-size="9" text-anchor="middle">systemd timer · daily_job.py</text>
+      <text x="660" y="684" fill="#fb7185" font-size="8" text-anchor="middle">VPS verification still pending</text>
+
+      <rect x="840" y="610" width="320" height="100" rx="8" fill="rgba(30,41,59,.55)" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="5,4"/>
+      <text x="1000" y="634" fill="white" font-size="11" font-weight="600" text-anchor="middle">Dashboard — reserved</text>
+      <text x="1000" y="652" fill="#94a3b8" font-size="9" text-anchor="middle">read-only API over artifacts</text>
+      <text x="1000" y="668" fill="#94a3b8" font-size="9" text-anchor="middle">not implemented in this phase</text>
+      <text x="1000" y="684" fill="#94a3b8" font-size="8" text-anchor="middle">future: FastAPI + DuckDB + ECharts</text>
+
+      <!-- legend -->
+      <text x="40" y="742" fill="#64748b" font-size="8">cyan = shared contract · green = GBDT · violet = research metadata · amber = data/artifacts · rose = production/security</text>
+    </svg>
+  </div>
+
+  <div class="cards">
+    <div class="card">
+      <div class="card-header"><div class="card-dot cyan"></div><h3>Leakage boundary</h3></div>
+      <ul>
+        <li>• train_end &lt; prediction date</li>
+        <li>• pending targets never filled</li>
+        <li>• feature schema and scaler fitted before scoring</li>
+        <li>• holdout read once, after pre-registration</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-dot amber"></div><h3>Evidence ladder</h3></div>
+      <ul>
+        <li>• replay → six-fold CV → deployment replay</li>
+        <li>• official 137-day window → attribution</li>
+        <li>• locked 95-day post-window</li>
+        <li>• HAC + block bootstrap + Holm, never raw Sharpe alone</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-dot rose"></div><h3>Release gate</h3></div>
+      <ul>
+        <li>• tests and compile audit green</li>
+        <li>• data hashes and manifests recorded</li>
+        <li>• limitations disclosed, not hidden</li>
+        <li>• no holdout-driven model or multiplier selection</li>
+      </ul>
+    </div>
+  </div>
+  <p class="footer">Hull Tactical research repository · architecture snapshot · 2026-11-22</p>
+</div>
+</body>
+</html>
