@@ -320,7 +320,6 @@ python scripts/run_phase8_feature_rankic.py \
 - `data/manifest.json` 记录数据哈希、行数和日期范围。
 - 归因分析前会复制 OOF 并记录哈希；哈希变化时停止，不允许静默覆盖。
 - `docs/reference/hull-competition-sharpe.ipynb` 用于对保存的仓位执行官方评分，以验证指标实现。
-- 仓库不会自动执行 `kaggle submit`，提交始终由人工完成。
 
 ---
 
