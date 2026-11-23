@@ -1,4 +1,4 @@
-# 每日部署（Linux VPS）
+# 每日部署
 
 每日任务只需要一条命令：
 
@@ -39,7 +39,7 @@ sudo -u hull chmod 600 /opt/hull/app/.env
 # 编辑 /opt/hull/app/.env；如果需要 W&B 跟踪，设置 WANDB_API_KEY
 ```
 
-数据接入需要 `data/train.csv`（用于特征字段契约和精确重叠校验）。`data/date_map.csv` 用于 9,048 个日期的对齐检查；如果存在，请随 `app/` 一起复制；如果不存在，该检查会被跳过。`data/raw/` 和 `data/lake/` 会按需创建。
+数据接入需要 `data/train.csv`（用于特征字段约定和精确重叠校验）。`data/date_map.csv` 用于 9,048 个日期的对齐检查；如果存在，请随 `app/` 一起复制；如果不存在，该检查会被跳过。`data/raw/` 和 `data/lake/` 会按需创建。
 
 ## 3. 冒烟测试
 
@@ -80,7 +80,7 @@ journalctl -u hull-daily.service -f
 
 ## 5. 失败行为
 
-- 下载或校验失败会以非零状态退出；systemd 记录失败，之前的实盘数据面板和预测结果保持不变。
+- 下载或校验失败会以非零状态退出；systemd 记录失败，之前的实盘日度数据表和预测结果保持不变。
 - `data/lake/ingest_log.jsonl` 保留每次尝试（状态、URL、SHA-256、行数）。
 - `--force` 会重新下载同一天的数据；正常每日任务会跳过已下载的日期。
 - 如果希望每天预测都进入 W&B，在 `ExecStart` 中加入 `--wandb`。

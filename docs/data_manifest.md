@@ -6,7 +6,7 @@
 
 ## 1. 目的
 
-这不是“数据已经完全没有问题”的声明，而是一个版本审计边界：
+本清单仅界定数据版本与审计边界：
 
 - 哪些文件进入了 Git；
 - 每个文件的 SHA-256、行数、列数、日期范围和目标缺失数；
@@ -26,11 +26,11 @@
 
 `train.csv` 有 94 个特征列，加上 `date_id` 和三个收益率字段；`test.csv` 增加 `is_scored` 与滞后收益字段。完整列名在 `data/manifest.json` 中。
 
-## 3. 生成数据和本地数据（不进入 Git）
+## 3. 生成数据和本地数据（不进入版本控制）
 
 | 文件 | 字节数 | 行 × 列 | 说明 | SHA-256 |
 | --- | ---: | ---: | --- | --- |
-| `data/lake/panel_live.parquet` | 3,440,367 | 9,291 × 100 | 实盘数据面板，3 个待实现目标 | `0a3fb6d2130eb98e2b8ea5e53a9361fade6985ec7a4ec68185946c454f51d2b8` |
+| `data/lake/panel_live.parquet` | 3,440,367 | 9,291 × 100 | 实盘日度数据表，3 个待实现目标 | `0a3fb6d2130eb98e2b8ea5e53a9361fade6985ec7a4ec68185946c454f51d2b8` |
 | `data/raw/hull/20261120_data.csv` | 8,926,839 | 9,291 × 96 | 原始 Hull CSV | `b66e50d7ef0c032b0cca39e08f9ec8a356a633950328261466075f8a18049a6a` |
 
 这两项被 `data/raw/` 与 `data/lake/` 的忽略规则排除；不提交是为了避免把每日更新的大文件、模型缓存和 W&B 运行产物带进仓库。它们仍然在数据清单中记录哈希，便于本机审计。
@@ -41,14 +41,14 @@
 https://www.hulltactical.com/wp-content/uploads/kaggle/20261120_data.csv
 ```
 
-`data/lake/ingest_state.json` 记录 `last_data_date=2026-11-20`、`last_ingested_at=2026-11-21T09:16:57+00:00`、`rows=9291`，并报告 E14 的最近缺失率为 44.4%。这是数据质量警告，不是被静默填平的异常。
+`data/lake/ingest_state.json` 记录 `last_data_date=2026-11-20`、`last_ingested_at=2026-11-21T09:16:57+00:00`、`rows=9291`，并报告 E14 的最近缺失率为 44.4%。这是数据质量告警，管线会在 health.json 中记录该异常并保持可审计。
 
 ## 4. 快速验证
 
 ```bash
 cd /home/yys/Hull_Tactical_solution
 
-# 重新生成数据清单（会更新 generated_at）
+# 重新生成数据清单（会更新时间戳）
 /home/yys/miniconda3/envs/dlwpt/bin/python scripts/build_data_manifest.py
 
 # 手工核对三个受版本控制的文件
@@ -60,6 +60,6 @@ git check-ignore -v data/lake/panel_live.parquet data/raw/hull/20261120_data.csv
 
 ## 5. 边界
 
-- `date_map.csv` 覆盖到 2026-11-20；实盘数据面板中的 3 个待实现目标不能被当作已实现标签。
-- `panel_live.parquet` 使用 `target_metric` 作为实盘代理（proxy）的目标；官方评分需要真实的 `forward_returns` 和 `risk_free_rate`，当前数据源没有提供。
+- `date_map.csv` 覆盖到 2026-11-20；实盘日度数据表中的 3 个待实现目标不能被当作已实现标签。
+- `panel_live.parquet` 使用 `target_metric` 作为实盘代理的目标；官方评分需要真实的 `forward_returns` 和 `risk_free_rate`，当前数据源没有提供。
 - 任何新的数据文件或日期扩展，都必须重新生成数据清单并重新跑测试；不要在数据清单未更新的情况下声称实验结果可复现。
