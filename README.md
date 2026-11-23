@@ -1,6 +1,6 @@
-# Hull Tactical — 市场预测研究管线
+# Hull Tactical - Market Prediction
 
-面向 Hull Tactical Kaggle 竞赛的可复现研究管线：统一时点数据面板、统一官方评分、共享仓位分配层，以及带严格样本外验证的 GBDT 模型族。
+面向 Hull Tactical - Market Prediction 竞赛的可复现研究项目：统一时点数据面板、统一官方评分、共享仓位分配层，以及带严格样本外验证的 GBDT 模型族。
 
 **状态：** 研究基线 · Python 3.12 · 48 项测试 · 1,488 个折外（out-of-fold，OOF）交易日
 **主指标：** 竞赛波动率调整夏普（volatility-adjusted Sharpe）
